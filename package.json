@@ -1,0 +1,32 @@
+{
+  "name": "campus-apply-tracker",
+  "version": "1.0.0",
+  "description": "校招投递控制台——聚合查询各家招聘系统里的个人投递状态(登录态本地保存,数据不出本机)",
+  "type": "module",
+  "bin": {
+    "ats": "./src/cli.mjs"
+  },
+  "scripts": {
+    "start": "node src/cli.mjs ui",
+    "ui": "node src/cli.mjs ui",
+    "cli": "node src/cli.mjs",
+    "test": "node --test test/basic.test.mjs"
+  },
+  "dependencies": {
+    "imapflow": "^1.7.8",
+    "playwright": "^1.62.1"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tian-zhen-yin/campus-apply-tracker.git"
+  },
+  "homepage": "https://github.com/tian-zhen-yin/campus-apply-tracker#readme",
+  "keywords": [
+    "campus-recruiting",
+    "job-application",
+    "tracker",
+    "playwright",
+    "job-hunting"
+  ]
+}
