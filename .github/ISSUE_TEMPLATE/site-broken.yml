@@ -1,0 +1,56 @@
+name: 站点失效报告
+description: 某家站点的状态查询/抓包不再工作——预置接口失效是常态,你的报告能帮所有用户更快恢复
+labels: ["site-broken"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ⚠️ **请勿在任何字段粘贴 cookie、授权码、手机号、简历附件等敏感信息。**
+        站点改版导致接口失效很常见,一份带诊断信息的报告能让修复快很多。
+  - type: dropdown
+    id: site
+    attributes:
+      label: 哪个站点
+      options:
+        - 字节跳动
+        - 阿里巴巴
+        - 美团
+        - 携程
+        - 小红书
+        - 快手
+        - 自定义站点
+        - 其它
+    validations:
+      required: true
+  - type: checkboxes
+    id: symptom
+    attributes:
+      label: 症状(可多选)
+      options:
+        - label: 查状态提示「未能取到数据」
+        - label: 查状态提示「会话已失效」(重新登录后仍然复现)
+        - label: 抓包向导识别不到接口 / 识别错误
+        - label: 登录后页面跳转异常(站点改版)
+        - label: 其它(请在下方描述)
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 用的是控制台哪个按钮或哪条命令,操作了什么
+      placeholder: 例如:控制台点「查状态」→ 快手提示「未能取到数据」;换 --raw 也一样
+    validations:
+      required: true
+  - type: textarea
+    id: raw
+    attributes:
+      label: 诊断输出(强烈建议提供)
+      description: 运行 `node src/cli.mjs status <站点> --raw` 后,粘贴 `~/.ats-status/out/<站点>.raw.json` 的内容(先删掉任何敏感字段;页面模式会记录探测过程,对定位非常有用)
+      render: json
+  - type: checkboxes
+    id: help
+    attributes:
+      label: 愿意协助修复吗
+      options:
+        - label: 我愿意按维护者指引重新抓包,并回传验证结果

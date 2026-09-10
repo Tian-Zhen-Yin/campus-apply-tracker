@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 使用指南(常见问题大多有答案)
+    url: https://github.com/Tian-Zhen-Yin/campus-apply-tracker/blob/master/docs/guide.html
+    about: 安装、登录、抓包、邮件监控的完整图文教程
+  - name: 使用红线与站点失效说明
+    url: https://github.com/Tian-Zhen-Yin/campus-apply-tracker#%EF%B8%8F-使用红线请务必读完再装
+    about: 预置接口为什么会失效、什么需求不会被接受
