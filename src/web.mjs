@@ -20,7 +20,6 @@ import { extractApplications } from './extract.mjs';
 import { chromium } from 'playwright';
 import { writeTrackerSync } from './trackerSync.mjs';
 import { readJobState, recentJobs, syncJobs, setJobMark, publishJobs, previewDocSource, addDocSource, removeDocSource, saveCapturedJob, openDocsLogin } from './jobs.mjs';
-import { captureJob } from './jobcapture.mjs';
 import { importTrackerPayload } from './trackerMigrate.mjs';
 import { notify } from './notify.mjs';
 import { applyToRecords, setCorrection, isValidStatus, readArchived, setArchived } from './corrections.mjs';
@@ -796,14 +795,6 @@ async function route(req, res, url) {
         const marks = setJobMark(id, { applied: body.applied, skip: body.skip, star: body.star });
         return json(res, 200, { ok: true, marks });
       } catch (e) { return json(res, 400, { error: String(e?.message || e) }); }
-    }
-    case '/api/jobs/capture': {
-      // 识别投递网址(移植自一键收录插件):开无头浏览器读岗位页,只识别不落库
-      if (busy && !busy.done) return json(res, 409, { error: `${busy.kind} 进行中，稍后再试` });
-      try {
-        const r = await captureJob(String(body.url || ''));
-        return json(res, 200, r);
-      } catch (e) { return json(res, 400, { ok: false, error: String(e?.message || e) }); }
     }
     case '/api/jobs/capture/save': {
       try {
