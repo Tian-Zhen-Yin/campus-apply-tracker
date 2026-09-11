@@ -106,6 +106,7 @@ const normalizeCaptured = (raw) => {
 
 // ===== popup 主流程 =====
 const setMsg = (text, cls = '') => { $('msg').textContent = text; $('msg').className = cls; };
+const b64url = (obj) => btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(obj)))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
 (async () => {
   // 控制台连通性:绿点=在运行;红点提示先开控制台
@@ -116,12 +117,14 @@ const setMsg = (text, cls = '') => { $('msg').textContent = text; $('msg').class
   } catch {
     setMsg('✗ 控制台未运行——先打开它（安装目录双击启动，或 http://127.0.0.1:7788）', 'err');
     $('save').disabled = true;
+    $('saveDirect').disabled = true;
   }
 
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.id || !/^https?:/i.test(tab.url || '')) {
     $('host').textContent = '当前不是网页，无法识别';
     $('save').disabled = true;
+    $('saveDirect').disabled = true;
     return;
   }
   $('host').textContent = tab.url.length > 64 ? tab.url.slice(0, 64) + '…' : tab.url;
@@ -133,11 +136,22 @@ const setMsg = (text, cls = '') => { $('msg').textContent = text; $('msg').class
   $('city').value = r.city || '';
   if (!r.company || !r.position) setMsg('没认全公司/岗位——可直接在框里手动补齐再收录', 'err');
 
+  // 主路径:带着识别结果跳转控制台大界面确认(?capture= 参数,控制台自动弹窗预填)
   $('save').addEventListener('click', async () => {
     const company = $('company').value.trim();
     const position = $('position').value.trim();
     if (!company || !position) { setMsg('公司和岗位不能为空', 'err'); return; }
-    $('save').disabled = true;
+    const payload = b64url({ company, position, city: $('city').value.trim(), url: r.url || tab.url });
+    await chrome.tabs.create({ url: `${CONSOLE}/console?capture=${payload}` });
+    window.close();
+  });
+
+  // 捷径:弹窗内直接收录,不跳转
+  $('saveDirect').addEventListener('click', async () => {
+    const company = $('company').value.trim();
+    const position = $('position').value.trim();
+    if (!company || !position) { setMsg('公司和岗位不能为空', 'err'); return; }
+    $('saveDirect').disabled = true;
     setMsg('收录中…');
     try {
       const resp = await fetch(`${CONSOLE}/api/jobs/capture/save`, {
@@ -150,7 +164,7 @@ const setMsg = (text, cls = '') => { $('msg').textContent = text; $('msg').class
       setMsg(data.updated ? '✓ 已收录（更新了同内容岗位）' : '✓ 已收录进「手动收录」岗位源', 'ok');
     } catch (e) {
       setMsg(`✗ 收录失败：${e.message}——控制台在运行吗？`, 'err');
-      $('save').disabled = false;
+      $('saveDirect').disabled = false;
     }
   });
 })();

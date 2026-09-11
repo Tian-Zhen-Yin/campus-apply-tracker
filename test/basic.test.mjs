@@ -10,12 +10,14 @@ const SRC = new URL('../src/', import.meta.url).pathname;
 process.env.ATS_STATUS_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'ats-test-'));
 
 const { mergePageHits } = await import(`${SRC}status.mjs`);
+const { readApps } = await import(`${SRC}apps.mjs`);
 const { recordKey, extractApplications, normalizeStatus } = await import(`${SRC}extract.mjs`);
 const { setCorrection, setArchived, applyToRecords, readCorrections, readArchived } = await import(`${SRC}corrections.mjs`);
 const { enrichMailRows, bindMail, unbindMail, candidatesFor } = await import(`${SRC}maillinks.mjs`);
 const { mailId, classifyMail, extractScheduleTip } = await import(`${SRC}mail.mjs`);
 const { parseDocUrl, stableJobId, parseDeadline, mapRowsToJobs, setJobMark, readJobState, saveJobState, buildJobPack, applyJobPack, readPackSource, evaluatePublish, recentJobs, removeDocSource, syncSource, extractCompany, saveCapturedJob } = await import(`${SRC}jobs.mjs`);
 const { normalizeCaptured, inferCity } = await import(`${SRC}jobcapture.mjs`);
+const { importTrackerPayload, parseTrackerPayload } = await import(`${SRC}trackerMigrate.mjs`);
 
 const ex = (t) => extractApplications(t);
 const one = (job, dept, status) => JSON.stringify({ content: [{ jobName: job, deptName: dept, statusName: status }] });
@@ -337,6 +339,55 @@ test('识别收录入库:进手动源,同内容重复收录=更新不重复;manu
   assert.equal(st2.jobs.filter((j) => j.src === 'manual').length, 1);
   assert.equal(st2.jobs[0].company, '商汤科技');
   assert.throws(() => removeDocSource('manual'), /手动收录源不可删除/);
+});
+
+test('台账迁移:记录→apps 幂等更新,岗位库→tracker-import 源整桶替换,skip→标记;重复执行不重复', () => {
+  fs.rmSync(path.join(process.env.ATS_STATUS_HOME, 'jobs.json'), { force: true });
+  fs.rmSync(path.join(process.env.ATS_STATUS_HOME, 'apps.json'), { force: true });
+  const payload = {
+    schemaVersion: 3, appVersion: '3.3.1', savedAt: '2026-09-12T00:00:00Z',
+    records: [
+      { company: '米哈游', position: '大模型算法工程师', stage: '面试中', applicationDate: '2026-09-09', applicationUrl: 'https://campus.mihoyo.com/', city: '上海' },
+      { company: '米哈游', position: '游戏策划', stage: '已投递', applicationDate: '2026-09-10', applicationUrl: '', city: '' },
+    ],
+    jobPool: [
+      { id: 'job-x1', company: '腾讯', position: 'AI 算法工程师', city: '深圳', deadline: '10-03', category: '正式批', applicationUrl: 'https://join.qq.com/', skip: false, addedAt: '2026-09-01' },
+      { id: 'job-x2', company: '莉莉丝', position: '游戏 AI 算法', city: '上海', deadline: '', category: '', applicationUrl: '', skip: true, addedAt: '2026-09-02' },
+    ],
+  };
+  let r = importTrackerPayload(payload);
+  assert.equal(r.recordsAdded, 2);
+  assert.equal(r.jobsImported, 2);
+  assert.equal(r.skipMarks, 1);
+  assert.ok(r.withJobPool);
+  // 记录进 apps,字段映射正确
+  let apps = readApps();
+  assert.equal(apps.length, 2);
+  const mh = apps.find((a) => a.job === '大模型算法工程师');
+  assert.equal(mh.company, '米哈游');
+  assert.equal(mh.statusRaw, '面试中');
+  assert.equal(mh.appliedAt, '2026-09-09');
+  // 岗位进 tracker-import 源,莉莉丝 skip 标记在案
+  let st = readJobState();
+  assert.ok(st.sources.some((s) => s.id === 'tracker-import'));
+  let pool = st.jobs.filter((j) => j.src === 'tracker-import');
+  assert.equal(pool.length, 2);
+  const lily = pool.find((j) => j.company === '莉莉丝');
+  assert.equal(st.marks[lily.id].skip, true);
+  assert.equal(pool.find((j) => j.company === '腾讯').deadline, `${new Date().getFullYear()}-10-03`, '台账 deadline 归一');
+  // 幂等:重复迁移 = 记录更新不新增,岗位整桶替换不重复
+  payload.records[0].stage = 'Offer';
+  r = importTrackerPayload(payload);
+  assert.equal(r.recordsAdded, 0);
+  assert.equal(r.recordsUpdated, 2);
+  assert.equal(readJobState().jobs.filter((j) => j.src === 'tracker-import').length, 2);
+  apps = readApps();
+  assert.equal(apps.length, 2);
+  assert.equal(apps.find((a) => a.job === '大模型算法工程师').statusRaw, 'Offer', '重复迁移更新阶段');
+  // 文件式(无 jobPool):只迁记录
+  const fileOnly = parseTrackerPayload({ records: payload.records });
+  assert.equal(fileOnly.jobPool.length, 0);
+  assert.throws(() => parseTrackerPayload({ foo: 1 }), /没找到投递记录/);
 });
 
 test('岗位包读取:远程优先,失败回落本地内置包', async () => {

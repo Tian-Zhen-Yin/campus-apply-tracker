@@ -21,6 +21,7 @@ import { chromium } from 'playwright';
 import { writeTrackerSync } from './trackerSync.mjs';
 import { readJobState, recentJobs, syncJobs, setJobMark, publishJobs, previewDocSource, addDocSource, removeDocSource, saveCapturedJob, openDocsLogin } from './jobs.mjs';
 import { captureJob } from './jobcapture.mjs';
+import { importTrackerPayload } from './trackerMigrate.mjs';
 import { notify } from './notify.mjs';
 import { applyToRecords, setCorrection, isValidStatus, readArchived, setArchived } from './corrections.mjs';
 
@@ -817,6 +818,14 @@ async function route(req, res, url) {
       try {
         await openDocsLogin(log); // 浏览器窗口交给用户:扫码后手动关闭,登录态随持久 profile 保存
         return json(res, 200, { ok: true });
+      } catch (e) { return json(res, 400, { error: String(e?.message || e) }); }
+    }
+    case '/api/import/tracker': {
+      // 台账迁移:文件式(导出 JSON)与托管台账一键按钮共用;幂等合并,可重复执行
+      try {
+        const r = importTrackerPayload(body.payload ?? body);
+        log(`📦 台账迁移：投递记录 新增 ${r.recordsAdded}/更新 ${r.recordsUpdated}${r.withJobPool ? `，岗位库 ${r.jobsImported} 条（含 ${r.skipMarks} 个不投标记）` : '（导出文件不含岗位库——如需迁移岗位,用台账里的「迁移到控制台」按钮）'}`);
+        return json(res, 200, r);
       } catch (e) { return json(res, 400, { error: String(e?.message || e) }); }
     }
     case '/api/jobs/publish': {
