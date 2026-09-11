@@ -32,8 +32,11 @@
     <p class="dim">打开控制台的大界面核对并收录</p>
     <button id="saveDirect" style="background:#64748b;margin-top:8px">直接收录（不跳转）</button>
     <p class="dim">数据只发到本机 127.0.0.1:7788，不出电脑</p>
+    <label style="display:flex;align-items:center;gap:6px;margin-top:14px;padding-top:10px;border-top:1px solid var(--line);font-weight:600;color:var(--ink)"><input type="checkbox" id="floatToggle" style="width:auto;margin:0"> 页面悬浮球（岗位页自动浮现）</label>
+    <p class="dim" style="text-align:left;margin-top:2px">开启需授权「读取网站」：仅用于本机判断是否岗位页并显示悬浮球，不外发数据；关闭即撤回权限</p>
   </div>
   <div id="msg"></div>
+  <script src="common.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>
