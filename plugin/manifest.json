@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "岗位收录助手（校招投递控制台）",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "在岗位详情页一键识别公司/岗位/城市，收录进本机的「校招投递控制台」岗位库。数据只发到你电脑上的 127.0.0.1:7788，不经任何服务器。",
   "action": {
     "default_popup": "popup.html",

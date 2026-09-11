@@ -811,8 +811,17 @@ async function route(req, res, url) {
     case '/api/jobs/capture/save': {
       try {
         const r = saveCapturedJob({ company: body.company, position: body.position, city: body.city, link: body.link });
-        log(`🔍 已收录岗位：${String(body.company)}「${String(body.position)}」${r.updated ? '（覆盖同内容旧条目）' : ''}`);
-        return json(res, 200, { ok: true, ...r });
+        // 收录即投递(ADR-0007 追记):默认同时标已投+落总览记录;插件取消勾选(applied:false)退回纯收藏
+        let record = null;
+        if (body.applied !== false) {
+          const job = readJobState().jobs.find((j) => j.id === r.id);
+          if (job) {
+            record = addJobMarkRecord({ company: job.company, job: job.position, link: job.link, city: job.city });
+            setJobMark(r.id, { applied: true });
+          }
+        }
+        log(`🔍 已收录岗位：${String(body.company)}「${String(body.position)}」${r.updated ? '（覆盖同内容旧条目）' : ''}${record ? (record.created ? '，并记入投递总览' : '，总览已有记录仅标已投') : '，未记投递'}`);
+        return json(res, 200, { ok: true, ...r, record });
       } catch (e) { return json(res, 400, { error: String(e?.message || e) }); }
     }
     case '/api/jobs/login': {

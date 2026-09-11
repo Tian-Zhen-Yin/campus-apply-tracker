@@ -513,7 +513,7 @@
 <div id="jobCaptureOverlay" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:60;align-items:center;justify-content:center">
   <div style="background:#fff;border-radius:12px;padding:18px 20px;width:560px;max-width:94vw;max-height:90vh;overflow:auto">
     <strong>🔍 识别投递网址</strong>
-    <p class="dim" id="jcIntro" style="margin:6px 0 0">由「岗位收录助手」插件发起——核对识别结果后确认收录进「手动收录」岗位源。</p>
+    <p class="dim" id="jcIntro" style="margin:6px 0 0">由「岗位收录助手」插件发起——核对识别结果后确认，默认同时记为已投递（进投递总览）。</p>
     <div id="jcResult" style="margin-top:12px"></div>
   </div>
 </div>
@@ -1140,11 +1140,15 @@ function openJobCaptureOverlay() {
   document.getElementById('jobCaptureOverlay').style.display = 'flex';
 }
 function closeJobCaptureOverlay() { document.getElementById('jobCaptureOverlay').style.display = 'none'; }
+let jcApplied = true; // 收录即投递(ADR-0007 追记):插件勾选状态,确认时随请求带回
 async function confirmCapture() {
   try {
-    const r = await api('/api/jobs/capture/save', { company: $('jcCompany').value.trim(), position: $('jcPosition').value.trim(), city: $('jcCity').value.trim(), link: $('jcLink').value.trim() });
+    const r = await api('/api/jobs/capture/save', { company: $('jcCompany').value.trim(), position: $('jcPosition').value.trim(), city: $('jcCity').value.trim(), link: $('jcLink').value.trim(), applied: jcApplied });
     closeJobCaptureOverlay();
-    toast(r.updated ? '已更新手动收录中的同内容岗位' : '已收录到「手动收录」岗位源');
+    if (!jcApplied) toast(r.updated ? '已更新手动收录中的同内容岗位' : '已收录到「手动收录」岗位源（未记投递）');
+    else if (r.record?.created) toast('已收录，并记入投递总览');
+    else if (r.record?.existed) toast('已收录；总览已有该岗位记录——仅标已投');
+    else toast(r.updated ? '已更新手动收录中的同内容岗位' : '已收录到「手动收录」岗位源');
   } catch (e) { toast(e.message); }
   await refresh();
 }
@@ -1394,14 +1398,15 @@ function consumeCaptureParam() {
     if (!raw) return;
     const json = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(raw.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0))));
     if (!json || !json.url) return;
+    jcApplied = json.applied !== false; // 插件「同时记为已投递」勾选状态(缺省视为勾上)
     openJobCaptureOverlay();
     $('jcResult').innerHTML = `
       <label class="f">公司</label><input type="text" id="jcCompany" value="${esc(json.company || '')}">
       <label class="f">岗位</label><input type="text" id="jcPosition" value="${esc(json.position || '')}">
       <label class="f">城市（可留空）</label><input type="text" id="jcCity" value="${esc(json.city || '')}">
       <label class="f">链接</label><input type="text" id="jcLink" value="${esc(json.url)}">
-      <p class="dim" style="margin:6px 0 0">来自「岗位收录助手」插件的识别结果——核对后确认收录。</p>
-      <div class="row" style="margin-top:10px"><button class="act pri" onclick="confirmCapture()">确认收录</button><button class="act" onclick="closeJobCaptureOverlay()">取消</button></div>`;
+      <p class="dim" style="margin:6px 0 0">来自「岗位收录助手」插件的识别结果——${jcApplied ? '确认后收录岗位库并<b>记为已投递</b>（进投递总览）' : '确认后仅收录岗位库（不记投递，之后可在岗位库点「已投」）'}。</p>
+      <div class="row" style="margin-top:10px"><button class="act pri" onclick="confirmCapture()">${jcApplied ? '确认收录并记已投' : '确认收录'}</button><button class="act" onclick="closeJobCaptureOverlay()">取消</button></div>`;
     history.replaceState(null, '', '/console');
   } catch { /* 参数坏就当没来过 */ }
 }

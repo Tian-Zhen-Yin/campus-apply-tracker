@@ -136,32 +136,36 @@ const b64url = (obj) => btoa(String.fromCharCode(...new TextEncoder().encode(JSO
   $('city').value = r.city || '';
   if (!r.company || !r.position) setMsg('没认全公司/岗位——可直接在框里手动补齐再收录', 'err');
 
-  // 主路径:带着识别结果跳转控制台大界面确认(?capture= 参数,控制台自动弹窗预填)
+  // 主路径:带着识别结果跳转控制台大界面确认(?capture= 参数,控制台自动弹窗预填;勾选状态一并带过去)
   $('save').addEventListener('click', async () => {
     const company = $('company').value.trim();
     const position = $('position').value.trim();
     if (!company || !position) { setMsg('公司和岗位不能为空', 'err'); return; }
-    const payload = b64url({ company, position, city: $('city').value.trim(), url: r.url || tab.url });
+    const payload = b64url({ company, position, city: $('city').value.trim(), url: r.url || tab.url, applied: $('markApplied').checked });
     await chrome.tabs.create({ url: `${CONSOLE}/console?capture=${payload}` });
     window.close();
   });
 
-  // 捷径:弹窗内直接收录,不跳转
+  // 捷径:弹窗内直接收录,不跳转(默认同时记为已投递,取消勾选则只进岗位库)
   $('saveDirect').addEventListener('click', async () => {
     const company = $('company').value.trim();
     const position = $('position').value.trim();
     if (!company || !position) { setMsg('公司和岗位不能为空', 'err'); return; }
+    const applied = $('markApplied').checked;
     $('saveDirect').disabled = true;
     setMsg('收录中…');
     try {
       const resp = await fetch(`${CONSOLE}/api/jobs/capture/save`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ company, position, city: $('city').value.trim(), link: r.url || tab.url }),
+        body: JSON.stringify({ company, position, city: $('city').value.trim(), link: r.url || tab.url, applied }),
       });
       const data = await resp.json().catch(() => ({}));
       if (!resp.ok || data.error) throw new Error(data.error || `HTTP ${resp.status}`);
-      setMsg(data.updated ? '✓ 已收录（更新了同内容岗位）' : '✓ 已收录进「手动收录」岗位源', 'ok');
+      if (!applied) setMsg(data.updated ? '✓ 已收录（更新了同内容岗位，未记投递）' : '✓ 已收录进岗位库（未记投递）', 'ok');
+      else if (data.record?.created) setMsg('✓ 已收录，并记入投递总览', 'ok');
+      else if (data.record?.existed) setMsg('✓ 已收录；总览已有该岗位记录——仅标已投', 'ok');
+      else setMsg(data.updated ? '✓ 已收录（更新了同内容岗位）' : '✓ 已收录进「手动收录」岗位源', 'ok');
     } catch (e) {
       setMsg(`✗ 收录失败：${e.message}——控制台在运行吗？`, 'err');
       $('saveDirect').disabled = false;
