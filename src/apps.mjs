@@ -80,6 +80,44 @@ export function importFromText(text) {
   return { added, total: existing.length };
 }
 
+// ===== 岗位库「已投」联动（ADR-0007）：点已投=落一条带来源的记录；取消时按纯净度回收 =====
+
+// 标记已投 → 创建记录。同公司同岗位（精确匹配）已有记录则只标记不建，绝不重复。
+export function addJobMarkRecord({ company, job, link }) {
+  const apps = readApps();
+  const c = String(company || '').trim();
+  const j = String(job || '').trim();
+  if (!c || !j) return { created: false, existed: true };
+  if (apps.some((a) => String(a.company || '').trim() === c && String(a.job || '').trim() === j)) {
+    return { created: false, existed: true };
+  }
+  apps.push({
+    company: c, job: j,
+    statusRaw: '已投递', status: normalizeStatus('已投递'),
+    appliedAt: new Date().toLocaleDateString('sv-SE'),
+    link: String(link || '').trim(),
+    origin: 'jobmark', addedAt: nowIso(),
+  });
+  writeJson(appsFile(), apps);
+  return { created: true, existed: false };
+}
+
+// 取消已投 → 仅当记录是本按钮创建（origin='jobmark'）且未进展（状态没改过、未绑邮件）时一并移除；
+// 手工登记/迁移来的记录（无 origin）永不被此函数删除。isBound 由调用方查邮件绑定后传入（避免 apps↔maillinks 循环依赖）。
+export function removeJobMarkRecord({ company, job }, isBound = false) {
+  const apps = readApps();
+  const c = String(company || '').trim();
+  const j = String(job || '').trim();
+  const i = apps.findIndex((a) => a.origin === 'jobmark' && String(a.company || '').trim() === c && String(a.job || '').trim() === j);
+  if (i < 0) return { removed: false, reason: 'missing' };
+  const rec = apps[i];
+  const progressed = (rec.statusRaw && rec.statusRaw !== '已投递') || isBound;
+  if (progressed) return { removed: false, reason: 'progressed' };
+  apps.splice(i, 1);
+  writeJson(appsFile(), apps);
+  return { removed: true, reason: 'pristine' };
+}
+
 export async function importApps(source) {
   let text;
   if (!source || source === '-') {

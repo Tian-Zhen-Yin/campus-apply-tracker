@@ -69,6 +69,10 @@ export function unbindMail(id) {
   delete b[id];
   writeBindings(b);
 }
+// 某条投递记录是否已被邮件绑定（岗位库「已投」联动回收记录时的纯净判断，见 ADR-0007）
+export function hasMailBinding(target) {
+  return Object.values(readBindings()).some((b) => sameTarget(b, target));
+}
 
 // 给邮件行补关联信息：link（人工绑定优先，其次无歧义自动命中）或 candidates（待人工选）
 export function enrichMailRows(rows) {

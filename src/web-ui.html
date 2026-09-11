@@ -865,7 +865,7 @@ function renderOverview() {
       all.push({ company: s.label, key: s.key, ...r, tk: `site|${s.key}|${r.job}|${r.dept || ''}`, src: `${s.label}（自动）`, at });
     }
   }
-  for (const a of S.apps) all.push({ company: a.company, job: a.job, tk: `apps|${a.company}|${a.job}|`, statusRaw: a.statusRaw, appliedAt: a.appliedAt, src: '手工', at: null });
+  for (const a of S.apps) all.push({ company: a.company, job: a.job, tk: `apps|${a.company}|${a.job}|`, statusRaw: a.statusRaw, appliedAt: a.appliedAt, src: a.origin === 'jobmark' ? '岗位库' : '手工', at: null });
   // 邮件挂载：已关联到具体记录的邮件按目标分组，挂在总览行下（未关联的在邮件面板处理）
   const mailByTarget = new Map();
   for (const m of ((S.mail || {}).recent || [])) {
@@ -915,7 +915,7 @@ function renderOverview() {
         : `<span id="ov-act-${i}">${ovActs(i)}</span>`;
       const mails = mailByTarget.get(r.tk) || [];
       const full = r.job + (r.dept ? ` · ${r.dept}` : '');
-      return `<tr${r.archived ? ' style="opacity:.55"' : ''}><td data-label="公司" style="white-space:nowrap">${esc(r.company)}</td><td data-label="岗位"><span class="ellip" style="max-width:430px" title="${esc(full)}"><strong>${esc(r.job)}</strong>${r.dept ? `<span class="dim"> · ${esc(r.dept)}</span>` : ''}</span>${r.corrected ? ' <span class="chip on" style="font-size:11px">✎已人工修正</span>' : ''}${r.archived ? ' <span class="chip off" style="font-size:11px">🗄已归档</span>' : ''}</td><td data-label="地点">${esc(r.city || '—')}</td><td data-label="状态">${badge(r.statusRaw)}</td><td data-label="数据时间" class="dim">${r.at ? ovTime(r.at) : '—'}</td><td data-label="操作">${acts}</td></tr>`
+      return `<tr${r.archived ? ' style="opacity:.55"' : ''}><td data-label="公司" style="white-space:nowrap">${esc(r.company)}${!r.key ? `<span class="dim" style="font-size:11px;margin-left:4px" title="记录来源：${esc(r.src)}">${esc(r.src)}</span>` : ''}</td><td data-label="岗位"><span class="ellip" style="max-width:430px" title="${esc(full)}"><strong>${esc(r.job)}</strong>${r.dept ? `<span class="dim"> · ${esc(r.dept)}</span>` : ''}</span>${r.corrected ? ' <span class="chip on" style="font-size:11px">✎已人工修正</span>' : ''}${r.archived ? ' <span class="chip off" style="font-size:11px">🗄已归档</span>' : ''}</td><td data-label="地点">${esc(r.city || '—')}</td><td data-label="状态">${badge(r.statusRaw)}</td><td data-label="数据时间" class="dim">${r.at ? ovTime(r.at) : '—'}</td><td data-label="操作">${acts}</td></tr>`
         + (mails.length ? `<tr><td colspan="6" style="padding:2px 14px 10px;font-size:12px;color:#475569">${mails.map((m) => `📬 ${mailBadge(m.kind)} ${esc(m.subject)}${mailTip(m)} <span class="dim">${cn(m.at)}</span>`).join('<br>')}</td></tr>` : '');
     }).join('') + '</tbody></table>' + pagerHtml('ovPage', 'renderOverview', rows.length, ovPage, maxPage);
 }
@@ -1018,7 +1018,7 @@ function renderJobs() {
     ? '岗位表由你在腾讯文档里维护，控制台只读同步'
     : `岗位来自岗位包${J.packUrl ? '（自定义远程地址）' : '（远程自动更新，离线回落内置包）'}${J.packAt ? '，生成于 ' + cn(J.packAt) : ''}，点同步拿最新`;
   const windowNote = J.total > (J.jobs || []).length ? `；展示最近更新的 ${J.jobs.length} 条（库中共 ${J.total} 条）` : '';
-  $('jobSyncCap').innerHTML = `${srcLabel}；「已投/不投/关注」标记只存本机，重同步不丢${windowNote}`
+  $('jobSyncCap').innerHTML = `${srcLabel}；「已投」会同时记入投递总览，「不投/关注」标记只存本机，重同步不丢${windowNote}`
     + (ls ? (ls.error ? ` · <span style="color:#b94747">上次同步失败：${esc(ls.error)}</span>` : ` · 上次同步 ${cn(ls.at)}，共 ${ls.count} 条`) : ' · 还没同步过——点「同步岗位库」拉取');
   const all = jobView();
   const now = new Date();
@@ -1104,7 +1104,16 @@ function renderJobList() {
 async function jobMark(i, k) {
   const r = jobRows[i];
   if (!r) return;
-  try { await api('/api/jobs/mark', { id: r.id, [k]: !r.m[k] }); }
+  try {
+    const res = await api('/api/jobs/mark', { id: r.id, [k]: !r.m[k] });
+    // 已投联动（ADR-0007）：告知记录落/回收结果；skip/star 无 record 字段不提示
+    if (k === 'applied' && res.record) {
+      if (res.record.created) toast('已标记，并记入投递总览');
+      else if (res.record.removed) toast('已取消标记，投递记录一并移除');
+      else if (res.record.reason === 'progressed') toast('已取消标记；总览记录已有进展，已保留');
+      else if (res.record.existed) toast('总览已有该岗位的投递记录——仅标记');
+    }
+  }
   catch (e) { toast(e.message); return; }
   await refresh();
 }

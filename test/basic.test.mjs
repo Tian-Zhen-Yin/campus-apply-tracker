@@ -10,10 +10,11 @@ const SRC = new URL('../src/', import.meta.url).pathname;
 process.env.ATS_STATUS_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'ats-test-'));
 
 const { mergePageHits } = await import(`${SRC}status.mjs`);
-const { readApps } = await import(`${SRC}apps.mjs`);
 const { recordKey, extractApplications, normalizeStatus } = await import(`${SRC}extract.mjs`);
 const { setCorrection, setArchived, applyToRecords, readCorrections, readArchived } = await import(`${SRC}corrections.mjs`);
 const { enrichMailRows, bindMail, unbindMail, candidatesFor } = await import(`${SRC}maillinks.mjs`);
+const { readApps, addJobMarkRecord, removeJobMarkRecord } = await import(`${SRC}apps.mjs`);
+const { appsFile } = await import(`${SRC}paths.mjs`);
 const { mailId, classifyMail, extractScheduleTip } = await import(`${SRC}mail.mjs`);
 const { parseDocUrl, stableJobId, parseDeadline, mapRowsToJobs, setJobMark, readJobState, saveJobState, buildJobPack, applyJobPack, readPackSource, evaluatePublish, recentJobs, removeDocSource, syncSource, extractCompany, saveCapturedJob } = await import(`${SRC}jobs.mjs`);
 const { normalizeCaptured, inferCity } = await import(`${SRC}jobcapture.mjs`);
@@ -420,4 +421,54 @@ test('展示窗口:recentJobs 按更新时间取最近 N 条', () => {
   assert.equal(win.length, 250, '超出窗口截取');
   assert.equal(recentJobs({ jobs: st.jobs.slice(0, 100) }, 250).length, 100, '不足窗口全给');
   assert.ok(recentJobs(st, 3)[0].updatedAt >= recentJobs(st, 3)[2].updatedAt, '最新在前');
+});
+
+test('岗位库「已投」联动:落记录、去重、纯净回收、进展保留、手工记录不动 (ADR-0007)', () => {
+  const appsReset = (list) => fs.writeFileSync(appsFile(), JSON.stringify(list), 'utf8');
+  appsReset([]);
+  // 联动只碰 apps.json,不依赖岗位库状态;这里仅验证记录生命周期
+  const r1 = addJobMarkRecord({ company: '联测公司', job: '联动工程师', link: 'https://j.example/1' });
+  assert.deepEqual(r1, { created: true, existed: false }, '首次点击创建记录');
+  let rec = readApps()[0];
+  assert.equal(rec.origin, 'jobmark');
+  assert.equal(rec.statusRaw, '已投递');
+  assert.match(rec.appliedAt, /^\d{4}-\d{2}-\d{2}$/, 'appliedAt=点击当天');
+  assert.equal(rec.link, 'https://j.example/1');
+
+  const r2 = addJobMarkRecord({ company: '联测公司', job: '联动工程师', link: 'https://j.example/1' });
+  assert.equal(r2.created, false, '重复点击不重复建');
+  assert.equal(readApps().length, 1);
+
+  // 同公司同岗位已有手工记录(无 origin):只标记不动它
+  appsReset([{ company: '既有公司', job: '岗位A', statusRaw: '笔试', appliedAt: '2026-09-01' }]);
+  const r3 = addJobMarkRecord({ company: '既有公司', job: '岗位A', link: 'x' });
+  assert.equal(r3.existed, true, '已有记录只标记');
+  assert.equal(readApps()[0].statusRaw, '笔试', '手工记录不被覆盖');
+  assert.equal(readApps()[0].origin, undefined, '不给手工记录注入 origin');
+
+  // 纯净回收
+  appsReset([]);
+  addJobMarkRecord({ company: '联测公司', job: '联动工程师', link: 'x' });
+  const d1 = removeJobMarkRecord({ company: '联测公司', job: '联动工程师' });
+  assert.deepEqual(d1, { removed: true, reason: 'pristine' }, '未进展记录一并移除');
+  assert.equal(readApps().length, 0);
+
+  // 进展保留:状态改过 / 绑了邮件
+  appsReset([]);
+  addJobMarkRecord({ company: '联测公司', job: '联动工程师', link: 'x' });
+  const touched = readApps();
+  touched[0].statusRaw = '笔试';
+  fs.writeFileSync(appsFile(), JSON.stringify(touched), 'utf8');
+  assert.equal(removeJobMarkRecord({ company: '联测公司', job: '联动工程师' }).reason, 'progressed', '状态进展保留');
+  appsReset([]);
+  addJobMarkRecord({ company: '联测公司', job: '联动工程师', link: 'x' });
+  assert.equal(removeJobMarkRecord({ company: '联测公司', job: '联动工程师' }, true).reason, 'progressed', '绑邮件保留');
+  assert.equal(readApps().length, 1, '记录仍在');
+
+  // 手工/迁移记录(无 origin)永不被删
+  appsReset([{ company: '手工公司', job: '手工岗位', statusRaw: '已投递' }]);
+  const d2 = removeJobMarkRecord({ company: '手工公司', job: '手工岗位' });
+  assert.equal(d2.removed, false, '无 origin 不在回收范围');
+  assert.equal(readApps().length, 1);
+  appsReset([]);
 });

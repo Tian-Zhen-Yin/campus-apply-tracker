@@ -8,13 +8,13 @@ import { SITES, SITE_KEYS, saveSiteOverride, saveCustomSite, deleteCustomSite, g
 import { openLoginSession } from './login.mjs';
 import { HOME, profileDir, capturedFile, metaFile, outFile, dashboardFile, historyFile, rawFile } from './paths.mjs';
 import { readJson, writeJson } from './util.mjs';
-import { readApps, importFromText } from './apps.mjs';
+import { readApps, importFromText, addJobMarkRecord, removeJobMarkRecord } from './apps.mjs';
 import { status } from './status.mjs';
 import { keepalive } from './keepalive.mjs';
 import { report } from './report.mjs';
 import { readFeishuConfig, feishuTest, feishuConfigFile } from './feishu.mjs';
 import { readMailConfig, readMailConfigs, saveMailConfigs, pollMail, testMailConnection, readMailLog, tipLine, PROVIDER_NOTES } from './mail.mjs';
-import { enrichMailRows, bindMail, unbindMail } from './maillinks.mjs';
+import { enrichMailRows, bindMail, unbindMail, hasMailBinding } from './maillinks.mjs';
 import { startRecording, attachRecorder } from './capture.mjs';
 import { extractApplications } from './extract.mjs';
 import { chromium } from 'playwright';
@@ -792,8 +792,20 @@ async function route(req, res, url) {
       const id = String(body.id || '');
       if (!id) return json(res, 400, { error: '需要岗位 id' });
       try {
+        const job = readJobState().jobs.find((j) => j.id === id);
+        if (!job) throw new Error('岗位不存在（可能已被同步移除）');
+        // 「已投」联动（ADR-0007）：标记的同时落/回收一条 apps 记录；skip/star 仍是纯标记
+        let record = null;
+        if (body.applied !== undefined) {
+          record = body.applied
+            ? addJobMarkRecord({ company: job.company, job: job.position, link: job.link })
+            : removeJobMarkRecord({ company: job.company, job: job.position }, hasMailBinding({ kind: 'apps', company: job.company, job: job.position }));
+          if (record.created) log(`✅ 已投并记入投递总览：${job.company}「${job.position}」`);
+          else if (record.removed) log(`↩️ 取消已投，移除对应记录：${job.company}「${job.position}」`);
+          else if (record.reason === 'progressed') log(`↩️ 取消已投；记录已有进展，保留总览记录：${job.company}「${job.position}」`);
+        }
         const marks = setJobMark(id, { applied: body.applied, skip: body.skip, star: body.star });
-        return json(res, 200, { ok: true, marks });
+        return json(res, 200, { ok: true, marks, record });
       } catch (e) { return json(res, 400, { error: String(e?.message || e) }); }
     }
     case '/api/jobs/capture/save': {
