@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "岗位收录助手（校招投递控制台）",
+  "version": "1.0.0",
+  "description": "在岗位详情页一键识别公司/岗位/城市，收录进本机的「校招投递控制台」岗位库。数据只发到你电脑上的 127.0.0.1:7788，不经任何服务器。",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "收录到校招投递控制台",
+    "default_icon": {
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "128": "icons/icon128.png"
+  },
+  "permissions": [
+    "activeTab",
+    "scripting"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1/*",
+    "http://localhost/*"
+  ],
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuET/gEcaCOiD4Lg054W8DsI1WBxm5LzblqN/mjFy1B4XYWhoxOixoJskeG0K3c2tUUEWx9IlmwBpoc5dFNZernuwHDDIL0+KhLBi2KakZMH2mHyp8d/tuaSQVO1RLOE1OgTJAQF2IZ+Lg3xb2sXn3v/otWcH55lxWYMaGk3qqhSR4kBxGImM3n9FPm0wiib2PEuA+Z/rkgrn7T+AQIVeTEtwFdz7me1StyQvENPGQ2w9z/ZXvjUlpkaEONrnW5/0qbhzH1CRbhoKytBhB45dly9smXK2tRKBBPI49hC0K+Vo/lOIsBw1BcsSzAprBoKoaLZZq4UEGUVhA9eJnCNnVwIDAQAB"
+}

@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <style>
+    :root { color-scheme: light; --ink: #172033; --muted: #667085; --line: #e4e8f2; --primary: #4f63e9; --green: #138a62; }
+    * { box-sizing: border-box; }
+    body { width: 340px; margin: 0; padding: 14px; color: var(--ink); font: 13px/1.5 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
+    h1 { margin: 0 0 10px; font-size: 14px; display: flex; align-items: center; gap: 6px; }
+    h1 .dot { width: 8px; height: 8px; border-radius: 50%; background: #c33; }
+    h1 .dot.ok { background: var(--green); }
+    #host { color: var(--muted); font-size: 11px; margin: -6px 0 10px; word-break: break-all; }
+    label { display: block; font-size: 11px; font-weight: 700; color: var(--muted); margin: 8px 0 3px; }
+    input { width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; font: inherit; }
+    button { width: 100%; margin-top: 12px; padding: 10px; border: 0; border-radius: 10px; background: var(--primary); color: #fff; font-weight: 800; font-size: 13px; cursor: pointer; }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    #msg { margin-top: 8px; font-size: 12px; text-align: center; min-height: 16px; }
+    #msg.ok { color: var(--green); font-weight: 700; }
+    #msg.err { color: #b94747; }
+    .dim { color: var(--muted); font-size: 11px; text-align: center; margin: 4px 0 0; }
+  </style>
+</head>
+<body>
+  <h1><span class="dot" id="dot"></span>岗位收录助手</h1>
+  <div id="host">…</div>
+  <div id="body">
+    <label>公司</label><input id="company">
+    <label>岗位</label><input id="position">
+    <label>城市（可改/可空）</label><input id="city">
+    <button id="save">收录到控制台岗位库</button>
+    <p class="dim">数据只发到本机 127.0.0.1:7788，不出电脑</p>
+  </div>
+  <div id="msg"></div>
+  <script src="popup.js"></script>
+</body>
+</html>

@@ -39,15 +39,16 @@ jobs:
             echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
             echo "TAG=$GITHUB_REF_NAME" >> "$GITHUB_ENV"
           fi
-      - name: 打包 Mac + Windows
+      - name: 打包 Mac + Windows + 收录插件
         run: |
           export TRACKER_REPO="$GITHUB_WORKSPACE/tracker-repo"
           bash scripts/pack-offline-full.sh "$VERSION"
           bash scripts/pack-full-windows.sh "$VERSION"
+          (cd plugin && zip -qr "$GITHUB_WORKSPACE/dist/job-capture-assistant-v$VERSION.zip" .)
           cd dist
           cp "校招投递管理-完整版-Mac-v$VERSION.zip" "campus-apply-tracker-full-Mac-v$VERSION.zip"
           cp "校招投递管理-完整版-Windows-v$VERSION.zip" "campus-apply-tracker-full-Windows-v$VERSION.zip"
-          shasum -a 256 campus-apply-tracker-full-*.zip > SHA256SUMS.txt
+          shasum -a 256 campus-apply-tracker-full-*.zip job-capture-assistant-*.zip > SHA256SUMS.txt
       - name: 发布 GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -58,4 +59,4 @@ jobs:
           else
             gh release create "$TAG" --verify-tag --title "v$VERSION — 校招投递控制台" --generate-notes || true
           fi
-          gh release upload "$TAG" campus-apply-tracker-full-Mac-v*.zip campus-apply-tracker-full-Windows-v*.zip SHA256SUMS.txt --clobber
+          gh release upload "$TAG" campus-apply-tracker-full-Mac-v*.zip campus-apply-tracker-full-Windows-v*.zip job-capture-assistant-v*.zip SHA256SUMS.txt --clobber
