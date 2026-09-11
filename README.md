@@ -2,6 +2,8 @@
 
 把字节 / 阿里 / 美团 / 携程 / 小红书 / 快手各家招聘官网里**你自己的投递状态**聚合成一张表,笔试/面试邀约邮件自动提取时间地点,状态一变就提醒。
 
+> 🏠 [产品主页](https://tian-zhen-yin.github.io/campus-apply-tracker/) · 🎭 [在线体验(虚构数据)](https://tian-zhen-yin.github.io/campus-apply-tracker/demo.html) · 📥 [下载安装包](https://github.com/Tian-Zhen-Yin/campus-apply-tracker/releases/latest)
+
 > **数据不出本机**:登录会话、投递记录、邮箱授权码全部只存在你自己的电脑上(`~/.ats-status/`),没有服务器、没有云端、不上报任何东西。
 
 ![总览](docs/guide-img/console-home.png)
