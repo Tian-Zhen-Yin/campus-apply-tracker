@@ -750,6 +750,7 @@ function renderSites() {
       s.hasProfile ? '<span class="chip on">会话 ✓</span>' : '<span class="chip off">未登录</span>',
       resSites.has(s.key) ? '<span class="chip on">常驻浏览器 🟢</span>' : '',
       s.spec ? `<span class="chip on">接口 · ${s.spec.mode} 模式${s.spec.verified ? '（已验证）' : ''}</span>` : (s.hasSeeds ? '<span class="chip">接口 · 有预置</span>' : '<span class="chip off">接口 · 未抓包</span>'),
+      s.failStreak >= 2 ? '<span class="chip off" title="连续 2 次查询失败——站点可能已改版或登录失效：重新登录 / 重新抓包即可修复">⚠ 接口疑似失效</span>' : '',
       s.last ? `<span class="chip">最近同步 ${cn(s.last.at)} · ${s.last.records.length} 条</span>` : '',
       s.heartbeat ? `<span class="chip">保活 ${Math.round(s.heartbeat.intervalMin / 60)}h</span>` : '',
     ].join('');
@@ -977,7 +978,7 @@ function renderJobs() {
   $('jobPublishBtn').style.display = J.source === 'doc' ? '' : 'none'; // 发布是维护者（文档模式）专属
   const srcLabel = J.source === 'doc'
     ? '岗位表由你在腾讯文档里维护，控制台只读同步'
-    : `岗位来自岗位包${J.packUrl ? '（自定义远程地址）' : '（远程自动更新，离线回落内置包）'}，点同步拿最新`;
+    : `岗位来自岗位包${J.packUrl ? '（自定义远程地址）' : '（远程自动更新，离线回落内置包）'}${J.packAt ? '，生成于 ' + cn(J.packAt) : ''}，点同步拿最新`;
   const windowNote = J.total > (J.jobs || []).length ? `；展示最近更新的 ${J.jobs.length} 条（库中共 ${J.total} 条）` : '';
   $('jobSyncCap').innerHTML = `${srcLabel}；「已投/不投/关注」标记只存本机，重同步不丢${windowNote}`
     + (ls ? (ls.error ? ` · <span style="color:#b94747">上次同步失败：${esc(ls.error)}</span>` : ` · 上次同步 ${cn(ls.at)}，共 ${ls.count} 条`) : ' · 还没同步过——点「同步岗位库」拉取');
@@ -999,6 +1000,18 @@ function renderJobList() {
   const J = S.jobs || {};
   const q = ($('jobSearch').value || '').trim().toLowerCase();
   const now = new Date();
+  // 模糊匹配(ADR-0003 精神:只提示不落标,点击才确认):官网已有这家公司的在途投递 → 行内「可能已投 ✓」
+  const norm = (t) => String(t || '').toLowerCase().replace(/[\s()（）【】\[\]·・,，。.、/\\\-—_#＃]+/g, '');
+  const appsAll = [];
+  for (const s of (S.sites || [])) for (const rec of ((s.last && s.last.records) || [])) if (!rec.archived) appsAll.push({ c: norm(s.label), j: norm(rec.job) });
+  for (const a of (S.apps || [])) appsAll.push({ c: norm(a.company), j: norm(a.job) });
+  const mayApplied = (r) => {
+    if (r.m.applied) return false;
+    const rc = norm(r.company), rp = norm(r.position);
+    if (rc.length < 2 || rp.length < 4) return false;
+    return appsAll.some((a) => (a.c === rc || a.c.includes(rc) || rc.includes(a.c))
+      && (a.j === rp || (a.j.length >= 4 && (a.j.includes(rp) || rp.includes(a.j)))));
+  };
   let rows = jobView();
   if (jobFilter === 'todo') rows = rows.filter((r) => !r.m.skip && !r.m.applied);
   else if (jobFilter === 'applied') rows = rows.filter((r) => r.m.applied);
@@ -1047,13 +1060,20 @@ function renderJobList() {
       ].join('');
       const link = r.link ? `<a class="panel-link" href="${esc(r.link)}" target="_blank" rel="noopener">去投递 ↗</a>` : '<span class="dim">—</span>';
       const upd = r.updatedAt ? `<span class="dim" style="opacity:.6;white-space:nowrap">${esc(String(r.updatedAt).slice(5, 10))}</span>` : '<span class="dim">—</span>';
-      return `<tr${r.m.skip ? ' style="opacity:.55"' : ''}><td data-label="公司"><span style="display:flex;align-items:baseline;gap:4px"><strong class="ellip" style="max-width:150px" title="${esc(r.company)}">${esc(r.company)}</strong>${r.m.star ? '<span style="color:#d69a10">★</span>' : ''}</span>${badgeRow}</td><td data-label="岗位"><span class="ellip" style="max-width:400px;font-weight:600" title="${esc(r.position)}">${esc(r.position)}</span>${r.m.applied ? ' <span class="chip on" style="font-size:11px">已投</span>' : ''}${r.note ? `<span class="ellip job-note" style="max-width:400px" title="${esc(r.note)}">${esc(r.note)}</span>` : ''}</td><td data-label="截止" style="white-space:nowrap">${dl}</td><td data-label="城市"><span class="ellip" style="max-width:104px" title="${esc(r.city)}">${esc(r.city || '—')}</span></td><td data-label="内推">${refCell}</td><td data-label="投递">${link}</td><td data-label="标记"><span style="display:inline-flex;gap:4px;white-space:nowrap">${acts}</span></td><td data-label="更新">${upd}</td></tr>`;
+      return `<tr${r.m.skip ? ' style="opacity:.55"' : ''}><td data-label="公司"><span style="display:flex;align-items:baseline;gap:4px"><strong class="ellip" style="max-width:150px" title="${esc(r.company)}">${esc(r.company)}</strong>${r.m.star ? '<span style="color:#d69a10">★</span>' : ''}</span>${badgeRow}</td><td data-label="岗位"><span style="display:flex;align-items:center;gap:6px"><span class="ellip" style="flex:1;max-width:400px;font-weight:600" title="${esc(r.position)}">${esc(r.position)}</span>${!r.m.applied && mayApplied(r) ? `<button class="act" style="min-height:22px;padding:1px 8px;font-size:11px;flex:0 0 auto" title="官网已有这家公司的在途投递——确认后本岗位标记为「已投」" onclick="jobConfirmApplied(${i})">可能已投 ✓</button>` : ''}</span>${r.m.applied ? ' <span class="chip on" style="font-size:11px">已投</span>' : ''}${r.note ? `<span class="ellip job-note" style="max-width:400px" title="${esc(r.note)}">${esc(r.note)}</span>` : ''}</td><td data-label="截止" style="white-space:nowrap">${dl}</td><td data-label="城市"><span class="ellip" style="max-width:104px" title="${esc(r.city)}">${esc(r.city || '—')}</span></td><td data-label="内推">${refCell}</td><td data-label="投递">${link}</td><td data-label="标记"><span style="display:inline-flex;gap:4px;white-space:nowrap">${acts}</span></td><td data-label="更新">${upd}</td></tr>`;
     }).join('') + '</tbody></table>' + pager;
 }
 async function jobMark(i, k) {
   const r = jobRows[i];
   if (!r) return;
   try { await api('/api/jobs/mark', { id: r.id, [k]: !r.m[k] }); }
+  catch (e) { toast(e.message); return; }
+  await refresh();
+}
+async function jobConfirmApplied(i) {
+  const r = jobRows[i];
+  if (!r) return;
+  try { await api('/api/jobs/mark', { id: r.id, applied: true }); toast('已确认「已投」——之后在投递总览继续跟进这家'); }
   catch (e) { toast(e.message); return; }
   await refresh();
 }

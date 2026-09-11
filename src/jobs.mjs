@@ -30,6 +30,7 @@ export function readJobState() {
     source: st?.source === 'doc' || st?.source === 'pack' ? st.source : '',
     docUrl: String(st?.docUrl || ''),
     packUrl: String(st?.packUrl || ''),
+    packAt: String(st?.packAt || ''),
     lastSync: st?.lastSync || null,
     jobs: Array.isArray(st?.jobs) ? st.jobs : [],
     marks: st?.marks && typeof st.marks === 'object' ? st.marks : {},
@@ -442,6 +443,7 @@ export async function syncJobs({ log = () => {}, headed = false } = {}) {
       const added = jobs.filter((j) => !prevIds.has(j.id)).length;
       const removed = st.jobs.filter((j) => !jobs.some((x) => x.id === j.id)).length;
       st.jobs = jobs;
+      st.packAt = String(payload.generatedAt || '') || null; // 岗位包生成时间,界面据此展示数据新鲜度
       st.lastSync = { at: nowIso(), count: jobs.length, error: null };
       saveJobState(st);
       log(`📋 岗位包已同步：共 ${jobs.length} 条（新增 ${added}，移除 ${removed}）`);

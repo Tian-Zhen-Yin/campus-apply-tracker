@@ -76,6 +76,7 @@ const log = (m) => {
 let busy = null; // { kind, logs, done, error, result }
 const sessions = new Map(); // id -> { id, site, kind, label, ...rec/fin }
 let lastInspection = null;
+const siteFail = new Map(); // site → 连续查询失败次数(成功清零;服务重启清零),≥2 视为接口疑似失效
 const resident = new Map(); // site -> { site, label, ctx, page, confirmed, openedAt }
 let nextId = 1;
 
@@ -372,6 +373,7 @@ function buildState() {
         hasProfile: fs.existsSync(profileDir(k)),
         hasSpec: !!spec,
         hasSeeds: !!cfg.seeds,
+        failStreak: siteFail.get(k) || 0,
         spec: spec ? { mode: spec.mode, verified: !!spec.verified, url: spec.url, capturedAt: spec.capturedAt } : null,
         last: out ? {
           at: out.at,
@@ -626,6 +628,12 @@ async function route(req, res, url) {
           if (!page && !fs.existsSync(profileDir(k))) { log(`${SITES[k].label}: 未登录，跳过（先常驻登录）`); return; }
           const opts = page ? { page, raw: true } : { raw: true };
           const out = await status(k, opts);
+          if (out && out.ok) siteFail.delete(k);
+          else if (out && out.ok === false) {
+            const n = (siteFail.get(k) || 0) + 1;
+            siteFail.set(k, n);
+            if (n === 2) log(`⚠️ ${SITES[k].label} 连续 2 次查询失败——接口可能已改版或登录失效，重新登录/重新抓包即可修复`);
+          }
           if (out && out.ok === false && out.reason === 'no-spec') log(`⚠️ ${SITES[k].label}: 该站点还没有可用接口——请在常驻窗口打开「我的申请」页后点「抓包」识别一次`);
         };
         if (site) await one(site, true);
