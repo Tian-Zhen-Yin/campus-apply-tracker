@@ -7,6 +7,7 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 VERSION="${1:-3.3.1}"
 TRACKER_REPO="${TRACKER_REPO:-$(git config --get campus.trackerRepo)}"
+mkdir -p "$REPO_DIR/dist"
 STAGE_ROOT="$(mktemp -d)/校招投递管理-完整版-Mac-v$VERSION"
 
 echo "▸ 组装包内容 → $STAGE_ROOT"
