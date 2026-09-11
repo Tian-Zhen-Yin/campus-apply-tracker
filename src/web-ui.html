@@ -148,6 +148,14 @@
   .banner.ok { background: var(--green-soft); border-color: #bde7d5; color: #1d7a58; }
   .banner .row { margin-top: 8px; }
 
+  /* ===== 上手检查单（激活漏斗 P0） ===== */
+  .ob-bar { display: inline-block; height: 6px; width: 120px; background: #dfe4f5; border-radius: 999px; overflow: hidden; vertical-align: middle; }
+  .ob-bar-fill { display: block; height: 100%; background: var(--primary); border-radius: inherit; transition: width .25s ease; }
+  .ob-item { display: flex; align-items: center; gap: 10px; padding: 8px 0 2px; font-size: 13.5px; }
+  .ob-item + .ob-item { border-top: 1px dashed #d7dcfa; margin-top: 6px; }
+  .ob-done strong { color: var(--muted); font-weight: 600; }
+  .ob-done strong::after { content: ' ✓'; color: var(--green); }
+
   /* ===== 站点卡 ===== */
   .site { display: flex; flex-direction: column; gap: 9px; }
   .site .hd { display: flex; align-items: center; gap: 8px; }
@@ -533,8 +541,54 @@ function render() {
   renderLogs();
 }
 
+// ===== 上手检查单（激活漏斗 P0）：必做①接入②查询完成即毕业；数据全部来自 /api/state，不加后端 =====
+const OB_KEY = 'ats.console.onboardingDismissed';
+function firstSitePick() {
+  const sites = (S.sites || []).filter((s) => !s.hasProfile);
+  if (!sites.length) return null;
+  const mails = ((S.mail || {}).recent || []).map((m) => m.company || '').join(' ');
+  return sites.find((s) => mails.includes(s.label)) || sites.find((s) => s.key === 'kuaishou') || sites[0];
+}
+function renderOnboarding() {
+  if (localStorage.getItem(OB_KEY)) return '';
+  const sites = S.sites || [];
+  const first = sites.some((s) => s.hasProfile);
+  const queried = sites.some((s) => s.last && s.last.at);
+  if (first && queried) return ''; // 必做完成即毕业
+  const mail = !!(S.mail || {}).configured;
+  const jobs = ((S.jobs || {}).jobs || []).length > 0;
+  const pick = firstSitePick();
+  const mails = ((S.mail || {}).recent || []).map((m) => m.company || '').join(' ');
+  const viaMail = pick && mails.includes(pick.label);
+  const items = [
+    { done: first, t: '接入第一家站点', hint: pick ? (viaMail ? `推荐 ${pick.label}——你邮箱里最近有它家邮件，可能已投过` : `推荐 ${pick.label}——有预置接口，免抓包`) : '六家已全部接入', btn: pick ? [`登录 ${pick.label}`, `act('/api/login',{site:'${pick.key}'})`] : null },
+    { done: queried, t: '查一次状态', hint: '官网状态自动出现在「投递总览」', btn: ['立即查询', "act('/api/status',{})"] },
+    { done: mail, t: '配邮箱监控（可选）', hint: '笔试/面试邀约自动提醒', btn: mail ? null : ['去配置', "obScroll('mailCard')"] },
+    { done: jobs, t: '同步岗位库', hint: '你的内推岗位表一键拉取', btn: jobs ? null : ['一键同步', 'jobsSync()'] },
+  ];
+  const doneN = items.filter((x) => x.done).length;
+  let h = `<div class="banner" style="background:var(--primary-soft);border-color:#d7dcfa">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <strong>🚀 上手清单 ${doneN}/4</strong>
+      <span class="ob-bar"><span class="ob-bar-fill" style="width:${Math.round(doneN / 4 * 100)}%"></span></span>
+      <span style="flex:1"></span>
+      <span class="dim">约 5 分钟，做完这家公司的状态就会自动更新</span>
+      <button class="act" style="min-height:26px;padding:0 8px" title="不再显示" onclick="dismissOnboarding()">✕</button>
+    </div>
+    <div>${items.map((it) => `
+      <div class="ob-item${it.done ? ' ob-done' : ''}">
+        <span style="width:18px;text-align:center">${it.done ? '✅' : '⬜'}</span>
+        <span style="flex:1;min-width:0"><strong>${it.t}</strong>${it.hint ? `<div class="dim">${esc(it.hint)}</div>` : ''}</span>
+        ${it.done || !it.btn ? '' : `<button class="act pri" style="min-height:30px;flex:0 0 auto" onclick="${it.btn[1]}">${esc(it.btn[0])}</button>`}
+      </div>`).join('')}
+    </div>
+  </div>`;
+  return h;
+}
+function dismissOnboarding() { localStorage.setItem(OB_KEY, '1'); renderAlerts(); }
+function obScroll(id) { document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' }); }
 function renderAlerts() {
-  let h = '';
+  let h = renderOnboarding();
   let residentDetailsOpen = window.__resDetailsOpen === true;
   if (S.busy) {
     h += `<div class="banner ${S.busy.error ? 'err' : 'busy'}"><strong>${S.busy.done ? (S.busy.error ? '❌ 上次任务失败：' + esc(S.busy.error) : '✅ 上次任务完成：' + esc(S.busy.kind)) : '⏳ 正在执行：' + esc(S.busy.kind) + ' …（页面自动刷新）'}</strong></div>`;
