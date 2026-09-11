@@ -53,7 +53,7 @@
     .shot {
       margin: 30px 0 8px; border: 1px solid var(--line); border-radius: 20px; overflow: hidden; box-shadow: var(--shadow); background: white;
     }
-    .shot img { display: block; width: 100%; height: auto; }
+    .shot img, .shot video { display: block; width: 100%; height: auto; }
     .shot figcaption { padding: 12px 18px; color: var(--muted); font-size: 13.5px; text-align: center; }
     h2 { text-align: center; font-size: 26px; letter-spacing: -.03em; margin: 52px 0 6px; }
     .sec-lead { text-align: center; color: var(--muted); margin: 0 0 22px; line-height: 1.7; }
@@ -113,8 +113,11 @@
     </header>
 
     <figure class="shot">
-      <img src="./guide-img/console-home.png" alt="控制台总览：投递统计、状态分布、站点接入卡片" loading="lazy">
-      <figcaption>控制台总览——投递统计、状态分布、站点接入一目了然；侧栏可进入岗位库、邮件通知与设置</figcaption>
+      <video autoplay muted loop playsinline poster="./guide-img/console-home.png" aria-label="控制台演示：查询状态、岗位库临近截止筛选、复制内推码、标记已投">
+        <source src="./guide-img/console-demo.mp4" type="video/mp4">
+        <source src="./guide-img/console-demo.webm" type="video/webm">
+      </video>
+      <figcaption>10 秒看懂核心闭环——官网状态自动更新 · 岗位库临近截止与内推码 · 一键标记（在线演示版，虚构数据）</figcaption>
     </figure>
 
     <h2>它能替你做四件事</h2>
