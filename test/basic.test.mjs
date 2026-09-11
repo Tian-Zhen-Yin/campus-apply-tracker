@@ -14,7 +14,7 @@ const { recordKey, extractApplications, normalizeStatus } = await import(`${SRC}
 const { setCorrection, setArchived, applyToRecords, readCorrections, readArchived } = await import(`${SRC}corrections.mjs`);
 const { enrichMailRows, bindMail, unbindMail, candidatesFor } = await import(`${SRC}maillinks.mjs`);
 const { mailId, classifyMail, extractScheduleTip } = await import(`${SRC}mail.mjs`);
-const { parseDocUrl, stableJobId, parseDeadline, mapRowsToJobs, setJobMark, readJobState, saveJobState, buildJobPack, applyJobPack, readPackSource, evaluatePublish, recentJobs } = await import(`${SRC}jobs.mjs`);
+const { parseDocUrl, stableJobId, parseDeadline, mapRowsToJobs, setJobMark, readJobState, saveJobState, buildJobPack, applyJobPack, readPackSource, evaluatePublish, recentJobs, removeDocSource, syncSource } = await import(`${SRC}jobs.mjs`);
 
 const ex = (t) => extractApplications(t);
 const one = (job, dept, status) => JSON.stringify({ content: [{ jobName: job, deptName: dept, statusName: status }] });
@@ -206,13 +206,76 @@ test('岗位包:默认剥离内推码/联系人并清洗链接内推参数(--ful
   assert.ok(rebuilt[0].id.startsWith('job-'), '缺 id 按内容重算');
 });
 
-test('岗位源推断:全新用户走岗位包,只有 docUrl 视为维护者文档,显式 source 优先', () => {
+test('岗位源推断:全新用户走岗位包,只有 docUrl 视为维护者文档,v2 以 sources 数组为准', () => {
   fs.rmSync(path.join(process.env.ATS_STATUS_HOME, 'jobs.json'), { force: true });
   assert.equal(readJobState().source, 'pack', '全新用户默认岗位包');
   saveJobState({ docUrl: 'https://docs.qq.com/smartsheet/X1?tab=Y1', lastSync: null, jobs: [], marks: {} });
   assert.equal(readJobState().source, 'doc', '旧数据(仅 docUrl)兼容为文档模式');
-  saveJobState({ source: 'pack', docUrl: 'https://docs.qq.com/smartsheet/X1?tab=Y1', lastSync: null, jobs: [], marks: {} });
-  assert.equal(readJobState().source, 'pack', '显式 source 优先于 docUrl');
+  saveJobState({ version: 2, sources: [{ id: 'pack', type: 'pack' }], docUrl: 'https://docs.qq.com/smartsheet/X1?tab=Y1', lastSync: null, jobs: [], marks: {} });
+  assert.equal(readJobState().source, 'pack', 'v2 以 sources 数组为唯一事实,docUrl 仅作遗留字段');
+});
+
+test('多源模型:分源同步只替换本源岗位,标记与他源保留;跨源同 id 靠前来源优先;移除源不伤标记', async () => {
+  // 需要真实 fetch 拉远程/内置包:本地造一个假远程失败→回落内置包(若内置包不存在则注入)
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = async () => { throw new Error('离线'); };
+  try {
+    saveJobState({
+      version: 2,
+      sources: [
+        { id: 'doc', type: 'doc', url: 'https://docs.qq.com/smartsheet/Main?tab=M1', label: '我的岗位表', addedAt: now(0) },
+        { id: 'pack', type: 'pack' },
+        { id: 'doc-user1', type: 'doc', url: 'https://docs.qq.com/smartsheet/U1?tab=T1', label: '同学的表', addedAt: now(0) },
+        { id: 'doc-user2', type: 'doc', url: 'https://docs.qq.com/smartsheet/U2?tab=T2', label: '另一张表', addedAt: now(0) },
+      ],
+      lastSync: null, marks: { 'job-pack-a': { star: true }, 'job-user1-x': { applied: true } },
+      jobs: [
+        { id: 'job-pack-a', src: 'pack', company: '原厂A', position: '算法岗', link: '' },
+        { id: 'job-user1-x', src: 'doc-user1', company: '同学表B', position: '后端开发', link: '' },
+        { id: 'job-user2-y', src: 'doc-user2', company: '另一张C', position: '测试岗', link: '' },
+      ],
+    });
+    function now(h) { return new Date(Date.now() - h * 3600000).toISOString(); }
+
+    // 移除 user2 源:其岗位移除,pack 与 user1 不动,标记保留
+    const rm = removeDocSource('doc-user2');
+    assert.equal(rm.jobsRemoved, 1);
+    const st = readJobState();
+    assert.equal(st.jobs.length, 2);
+    assert.equal(st.marks['job-user1-x'].applied, true, '标记不受移除影响');
+    assert.throws(() => removeDocSource('doc'), /主文档源不可删除/, '维护者主文档源受保护');
+    assert.throws(() => removeDocSource('doc-ghost'), /岗位源不存在/, '移除不存在的源报错');
+    assert.equal(st.jobs.find((j) => j.id === 'job-pack-a').src, 'pack');
+
+    // 分源同步 pack:只替换 pack 岗位,doc 源岗位不动(离线→回落内置包;若内置包缺失则跳过该断言组)
+    if (fs.existsSync(new URL('../jobs-pack.json', import.meta.url).pathname)) {
+      const r = await syncSource('pack', { log: () => {} });
+      assert.ok(r.ok, '回落内置包同步成功');
+      const st2 = readJobState();
+      assert.ok(st2.jobs.some((j) => j.src === 'pack'), 'pack 岗位已刷新');
+      assert.ok(st2.jobs.some((j) => j.src === 'doc-user1'), 'doc 源岗位未被 pack 同步波及');
+      assert.equal(st2.marks['job-user1-x'].applied, true);
+    }
+  } finally { globalThis.fetch = origFetch; }
+});
+
+test('构建岗位包只含主文档源:用户自助源岗位不外泄', () => {
+  saveJobState({
+    version: 2,
+    sources: [
+      { id: 'doc', type: 'doc', url: 'https://docs.qq.com/smartsheet/Main?tab=M1' },
+      { id: 'doc-user1', type: 'doc', url: 'https://docs.qq.com/smartsheet/U1?tab=T1' },
+    ],
+    lastSync: null, marks: {},
+    jobs: [
+      { id: 'job-main-1', src: 'doc', company: '主文档公司', position: '算法', link: 'https://main.com/x?recommendCode=LEAK1', updatedAt: '2026-09-10' },
+      { id: 'job-user1-1', src: 'doc-user1', company: '同学表公司', position: '后端', link: '', updatedAt: '2026-09-11' },
+    ],
+  });
+  const { pack } = buildJobPack({});
+  assert.ok(pack.jobs.every((j) => j.company !== '同学表公司'), '用户自助源岗位不进岗位包');
+  assert.equal(pack.jobs.length, 1);
+  assert.ok(!/recommendcode/i.test(pack.jobs[0].link), '主文档链接的内推参数照常清洗');
 });
 
 test('岗位包读取:远程优先,失败回落本地内置包', async () => {

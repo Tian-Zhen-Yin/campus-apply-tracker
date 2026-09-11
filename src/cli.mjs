@@ -42,7 +42,9 @@ function usage() {
   import <file|-|>     导入手工投递列表（JSON 数组或 CSV：公司,岗位,状态,投递时间,链接；空=读管道）
   apps                 查看手工投递列表
   jobs                 查看岗位库（普通用户读内置岗位包；维护者读自己的腾讯智能表格）
-  jobs sync            同步岗位库（--headed 显示浏览器，仅维护者文档模式有意义）
+  jobs sync            同步全部岗位源（--headed 显示浏览器；--source <id> 只同步指定源）
+  jobs source add <url>    添加腾讯智能表格岗位源（试读预览确认后入库）
+  jobs source remove <id>  移除岗位源
   jobs pack [--full]   导出岗位包 jobs-pack.json 随仓库分发（维护者用；默认剥离内推码/联系人，--full 保留）
   jobs publish         发布流水线：同步文档→防呆检查→打包→git 提交推送（维护者用；定时触发建议走控制台）
   keepalive            心跳保活（--once 单轮，--interval N 分钟）
@@ -112,9 +114,24 @@ ensureDirs();
       const { readJobState, syncJobs, writeJobPack } = await import('./jobs.mjs');
       const sub = args[0];
       if (sub === 'sync') {
-        const r = await syncJobs({ log: console.log, headed: opt('--headed') });
+        const r = await syncJobs({ log: console.log, headed: opt('--headed'), id: optVal('--source') });
         if (r.needLogin) console.log('读取失败：文档需保持「有链接即可查看」的公开权限');
         else if (!r.ok) console.log(`同步失败：${r.error}`);
+        break;
+      }
+      if (sub === 'source' && args[1] === 'add') {
+        const { addDocSource } = await import('./jobs.mjs');
+        const r = await addDocSource(args[2], { headed: opt('--headed'), log: console.log });
+        if (r.ok) console.log(`已添加并同步 ${r.count} 条（源 id: ${r.id}）`);
+        else console.log(`✗ ${r.error}`);
+        break;
+      }
+      if (sub === 'source' && args[1] === 'remove') {
+        const { removeDocSource } = await import('./jobs.mjs');
+        try {
+          const r = removeDocSource(args[2]);
+          console.log(`已移除「${r.removed}」，其 ${r.jobsRemoved} 条岗位一并移除（标记保留）`);
+        } catch (e) { console.log(`✗ ${e.message}`); }
         break;
       }
       if (sub === 'pack') {
@@ -133,8 +150,10 @@ ensureDirs();
       const st = readJobState();
       const ls = st.lastSync;
       const { recentJobs } = await import('./jobs.mjs');
-      console.log(`岗位源: ${st.source === 'doc' ? `我的文档 ${st.docUrl}` : `岗位包${st.packUrl ? `（远程 ${st.packUrl}）` : '（内置 jobs-pack.json）'}`}`);
-      console.log(`同步: ${ls ? `${ls.error ? '失败：' + ls.error : '共 ' + st.jobs.length + ' 条'} · ${new Date(ls.at).toLocaleString('zh-CN')}` : '从未'}`);
+      for (const s of st.sources) {
+        console.log(`岗位源: [${s.id}] ${s.type === 'pack' ? `原厂岗位包${s.packUrl ? `（远程）` : '（内置）'}` : `${s.label || '文档'} ${s.url}`}${s.lastSync ? ` · ${s.lastSync.error ? '失败:' + s.lastSync.error : s.lastSync.count + ' 条'}` : ' · 未同步'}`);
+      }
+      console.log(`合计: ${st.jobs.length} 条${ls ? ` · 最近同步 ${new Date(ls.at).toLocaleString('zh-CN')}` : ''}`);
       const shown = recentJobs(st);
       if (shown.length) {
         if (st.jobs.length > shown.length) console.log(`（展示最近更新的 ${shown.length} 条，库中共 ${st.jobs.length} 条）`);

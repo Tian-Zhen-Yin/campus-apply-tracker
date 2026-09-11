@@ -360,6 +360,7 @@
         </div>
       </div>
       <div class="panel-body">
+        <div class="chips" id="jobSources" style="margin:0 0 10px"></div>
         <div class="chips" id="jobStats" style="margin:0 0 10px"></div>
         <div class="row" style="align-items:center">
           <div class="chips" id="jobFilters"></div>
@@ -477,6 +478,24 @@
       <button class="act pri" onclick="saveSiteForm()">保存</button>
       <button class="act" onclick="closeSiteForm()">取消</button>
       <button class="act warn" id="sfDelete" style="display:none;margin-left:auto" onclick="deleteSiteFromForm()">删除此站点</button>
+    </div>
+  </div>
+</div>
+
+<div id="jobSourceOverlay" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:60;align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:12px;padding:18px 20px;width:620px;max-width:94vw;max-height:90vh;overflow:auto">
+    <strong>添加岗位文档源</strong>
+    <p class="dim" style="margin:6px 0 0">支持任何「有链接即可查看」的腾讯智能表格（学校群 / 朋友分享的内推表等）。只读同步、手动触发；表头需能认出「公司」和「岗位」列。添加后随时可移除，不影响其他来源与本机标记。</p>
+    <label class="f">智能表格链接（浏览器地址栏整段复制）</label>
+    <input type="text" id="jsUrl" placeholder="https://docs.qq.com/smartsheet/…?tab=…&viewId=…">
+    <div class="row" style="margin-top:10px">
+      <button class="act pri" id="jsPreviewBtn" onclick="previewJobSource()">试读预览</button>
+      <button class="act" onclick="closeJobSourceOverlay()">取消</button>
+    </div>
+    <div id="jsPreview" style="margin-top:12px"></div>
+    <div class="row" id="jsConfirmRow" style="margin-top:10px;display:none">
+      <button class="act pri" onclick="confirmJobSource()">确认添加并同步</button>
+      <span class="dim" style="align-self:center">确认后立即同步一次（约 10-40 秒，取决于表大小）</span>
     </div>
   </div>
 </div>
@@ -975,6 +994,7 @@ const jobView = () => {
 function renderJobs() {
   const J = S.jobs || {};
   const ls = J.lastSync;
+  renderJobSources();
   $('jobPublishBtn').style.display = J.source === 'doc' ? '' : 'none'; // 发布是维护者（文档模式）专属
   const srcLabel = J.source === 'doc'
     ? '岗位表由你在腾讯文档里维护，控制台只读同步'
@@ -1070,6 +1090,68 @@ async function jobMark(i, k) {
   catch (e) { toast(e.message); return; }
   await refresh();
 }
+// ===== 岗位源管理:pack(原厂,内置)+ 用户自助文档源(试读预览确认后添加,可移除) =====
+function renderJobSources() {
+  const srcs = (S.jobs || {}).sources || [];
+  const last = (s) => s.lastSync && !s.lastSync.error ? `上次 ${cn(s.lastSync.at)}` : (s.lastSync?.error ? `<span style="color:#b94747">失败</span>` : '未同步');
+  $('jobSources').innerHTML = srcs.map((s) => s.type === 'pack'
+    ? `<span class="chip" title="原厂策展岗位包,随版本更新;离线回落内置包">📦 原厂岗位包 · ${last(s)} <button class="act" style="margin-left:4px;padding:0 6px;font-size:11px" onclick="jobsSync('${s.id}')">↻</button></span>`
+    : `<span class="chip" title="${esc(s.url)}">📄 ${esc(s.label || '文档源')} · ${last(s)} <button class="act" style="margin-left:4px;padding:0 6px;font-size:11px" title="同步此来源" onclick="jobsSync('${s.id}')">↻</button> <button class="act warn" style="padding:0 6px;font-size:11px" title="移除此来源(其岗位一并移除,标记保留)" onclick="removeJobSource('${s.id}','${esc(s.label || '')}')">✕</button></span>`
+  ).join('') + `<button class="act" style="min-height:26px;padding:0 10px;font-size:12px" onclick="openJobSourceOverlay()">＋ 添加文档源</button>`;
+}
+function openJobSourceOverlay() {
+  $('jsUrl').value = ''; $('jsPreview').innerHTML = ''; $('jsConfirmRow').style.display = 'none';
+  document.getElementById('jobSourceOverlay').style.display = 'flex';
+}
+function closeJobSourceOverlay() { document.getElementById('jobSourceOverlay').style.display = 'none'; }
+async function previewJobSource() {
+  const url = $('jsUrl').value.trim();
+  if (!url) { toast('先粘贴智能表格链接'); return; }
+  $('jsPreviewBtn').disabled = true;
+  $('jsPreview').innerHTML = '<div class="dim">⏳ 正在读取文档（约 10-40 秒，取决于表大小）……</div>';
+  try {
+    const r = await api('/api/jobs/sources/preview', { url });
+    if (!r.ok) {
+      $('jsPreview').innerHTML = `<div class="banner err" style="margin:0">读取失败：${esc(r.error)}</div>`;
+      return;
+    }
+    $('jsPreview').innerHTML = `
+      <div class="chips" style="margin-bottom:8px">
+        ${r.title ? `<span class="chip on">${esc(r.title)}</span>` : ''}
+        <span class="chip">有效岗位 ${r.rowCount} 条</span>
+        <span class="chip">识别表头：${r.header.map(esc).join(' · ')}</span>
+      </div>
+      <table style="min-width:0"><tbody>${r.sample.map((row) => `<tr>${row.map((c) => `<td style="padding:6px 10px;font-size:12px" class="dim">${esc(c || '—')}</td>`).join('')}</tr>`).join('')}</tbody></table>
+      <p class="dim" style="margin:8px 0 0">只展示前 3 条样例。确认列识别无误后，点下方按钮添加并同步。</p>`;
+    $('jsConfirmRow').style.display = '';
+    $('jsConfirmRow').dataset.url = url;
+  } catch (e) { $('jsPreview').innerHTML = `<div class="banner err" style="margin:0">${esc(e.message)}</div>`; }
+  finally { $('jsPreviewBtn').disabled = false; }
+}
+async function confirmJobSource() {
+  const url = $('jsConfirmRow').dataset.url;
+  if (!url) return;
+  $('jsConfirmRow').style.display = 'none';
+  $('jsPreview').innerHTML = '<div class="dim">⏳ 已添加，正在同步全部岗位……</div>';
+  try {
+    const r = await api('/api/jobs/sources/add', { url });
+    if (!r.ok) { $('jsPreview').innerHTML = `<div class="banner err" style="margin:0">${esc(r.error || '添加失败')}</div>`; return; }
+    closeJobSourceOverlay();
+    toast(`文档源已添加，同步 ${r.count} 条岗位`);
+  } catch (e) { toast(e.message); }
+  await refresh();
+}
+async function removeJobSource(id, label) {
+  if (!confirm(`移除岗位源「${label || id}」？\n它带来的 ${'岗位'} 将从列表移除（你的标记保留；重新添加即可恢复）。`)) return;
+  try { await api('/api/jobs/sources/remove', { id }); toast('已移除'); }
+  catch (e) { toast(e.message); }
+  await refresh();
+}
+async function jobsSync(id) {
+  try { await api('/api/jobs/sync', id ? { id } : {}); toast('同步已开始'); }
+  catch (e) { toast(e.message); }
+  await refresh();
+}
 async function jobConfirmApplied(i) {
   const r = jobRows[i];
   if (!r) return;
@@ -1095,11 +1177,6 @@ function jobCopyCode(i) {
   const code = String(r.referralCode || '').replace(/^内推码[:：]?\s*/, '').trim() || String(r.referrer || '').trim();
   if (!code) { toast('这条没有内推码'); return; }
   copyText(code);
-}
-async function jobsSync() {
-  try { await api('/api/jobs/sync', {}); toast('同步已开始'); }
-  catch (e) { toast(e.message); }
-  await refresh();
 }
 async function jobsPublish() {
   try { await api('/api/jobs/publish', {}); toast('发布已开始：同步文档 → 打包 → 提交推送（结果见系统通知/活动日志）'); }

@@ -19,7 +19,7 @@ import { startRecording, attachRecorder } from './capture.mjs';
 import { extractApplications } from './extract.mjs';
 import { chromium } from 'playwright';
 import { writeTrackerSync } from './trackerSync.mjs';
-import { readJobState, recentJobs, syncJobs, setJobMark, publishJobs } from './jobs.mjs';
+import { readJobState, recentJobs, syncJobs, setJobMark, publishJobs, previewDocSource, addDocSource, removeDocSource } from './jobs.mjs';
 import { notify } from './notify.mjs';
 import { applyToRecords, setCorrection, isValidStatus, readArchived, setArchived } from './corrections.mjs';
 
@@ -758,13 +758,34 @@ async function route(req, res, url) {
       return json(res, 200, r);
     }
     case '/api/jobs/sync': {
-      // 同步要开浏览器，与查状态/抓包等浏览器任务互斥（runJob 内含 busy/会话守卫）
+      // 同步全部(或指定)岗位源;doc 源要开浏览器,与查状态/抓包等浏览器任务互斥(docsqq profile 内部另有串行锁)
       const ok = runJob('jobs:sync', async () => {
-        const r = await syncJobs({ log: console.log });
-        if (r.needLogin) log('⚠️ 腾讯文档读取失败（未登录或无权限）——文档需保持「链接可查看」');
+        const r = await syncJobs({ log: console.log, id: body.id || undefined });
+        if (!r.ok) log(`⚠️ 岗位源同步失败：${r.error}`);
       });
       if (!ok.started) return json(res, 409, { error: ok.error === 'session-open' ? '有浏览器会话未完成，先完成或放弃再操作' : `${busy?.kind || '有任务'} 进行中` });
       return json(res, 200, { ok: true });
+    }
+    case '/api/jobs/sources/preview':
+    case '/api/jobs/sources/add': {
+      // 试读/添加文档源:直连响应(不开 runJob,docsqq profile 在 jobs.mjs 内部串行);仅 busy 时拒绝
+      if (busy && !busy.done) return json(res, 409, { error: `${busy.kind} 进行中，稍后再试` });
+      const url = String(body.url || '').trim();
+      const adding = p === '/api/jobs/sources/add';
+      try {
+        const r = adding
+          ? await addDocSource(url, { log })
+          : await previewDocSource(url);
+        if (adding && r.ok) log(`🟢 文档源已添加并同步：${r.count} 条`);
+        return json(res, 200, r);
+      } catch (e) { return json(res, 400, { ok: false, error: String(e?.message || e) }); }
+    }
+    case '/api/jobs/sources/remove': {
+      try {
+        const r = removeDocSource(String(body.id || ''));
+        log(`🗑 文档源已移除：${r.removed}（其 ${r.jobsRemoved} 条岗位一并移除，标记保留）`);
+        return json(res, 200, { ok: true, ...r });
+      } catch (e) { return json(res, 400, { error: String(e?.message || e) }); }
     }
     case '/api/jobs/mark': {
       const id = String(body.id || '');

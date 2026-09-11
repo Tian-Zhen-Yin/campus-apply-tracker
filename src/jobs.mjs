@@ -1,8 +1,8 @@
-// 控制台岗位库：两种岗位源（jobs.json 的 source 字段，不提供界面配置）——
-//   pack（默认，普通用户）：读岗位包 jobs-pack.json（维护者导出的快照，随仓库/安装包分发，零配置开箱即用）；
-//   doc（维护者本机）：读固定绑定的腾讯智能表格（地址存 docUrl，文档需「链接可查看」），复刻台账插件的
-//   dop-api 读取链路，匿名无头浏览器执行（独立 profile profiles/docsqq）。对外只发布岗位包，文档地址永不分发。
-// 「已投/不投/关注」是本地标记覆盖层，重同步保留。与台账（校招投递管理）的岗位库互不影响、不推送。
+// 控制台岗位库：岗位源(Source)可多个,全部只读、手动同步——
+//   pack(原厂岗位包,默认):读 jobs-pack.json 快照(远程 raw 直链优先,失败回落内置),所有用户开箱即用;
+//   doc(用户自助文档源):任意「有链接即可查看」的腾讯智能表格,添加时试读预览确认(ADR-0006 追记)。
+// 岗位行带 src(来源 id),分源整表替换;「已投/不投/关注」是本地标记覆盖层,重同步保留。
+// 与台账(校招投递管理)的岗位库互不影响、不推送。对外发布(ADR-0006)只含维护者主文档源。
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -14,20 +14,16 @@ import { readJson, nowIso } from './util.mjs';
 const DOCS_ORIGIN = 'https://docs.qq.com/';
 const PACK_KIND = 'campus-apply-tracker-job-pack';
 const PACK_VERSION = 1;
-// 内置岗位包随仓库/安装包分发（打包脚本整仓 rsync，根目录文件自动带上）
+// 内置岗位包随仓库/安装包分发(打包脚本整仓 rsync,根目录文件自动带上)
 const BUNDLED_PACK = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'jobs-pack.json');
-
-// source 缺省时的推断：有 docUrl 说明是维护者机器（旧数据兼容），否则普通用户走岗位包
-export function effectiveSource(st) {
-  if (st.source === 'doc' || st.source === 'pack') return st.source;
-  return st.docUrl ? 'doc' : 'pack';
-}
+const MAIN_DOC_ID = 'doc'; // 维护者主文档源:发布岗位包的唯一内容来源
 
 export function readJobState() {
   let st = null;
-  try { st = JSON.parse(fs.readFileSync(jobsFile(), 'utf8')); } catch { /* 还没有 jobs.json 的全新用户 */ }
-  const base = {
-    source: st?.source === 'doc' || st?.source === 'pack' ? st.source : '',
+  try { st = JSON.parse(fs.readFileSync(jobsFile(), 'utf8')); } catch { /* 全新用户:还没有 jobs.json */ }
+  const out = {
+    version: 2,
+    sources: Array.isArray(st?.sources) ? st.sources : [],
     docUrl: String(st?.docUrl || ''),
     packUrl: String(st?.packUrl || ''),
     packAt: String(st?.packAt || ''),
@@ -35,19 +31,28 @@ export function readJobState() {
     jobs: Array.isArray(st?.jobs) ? st.jobs : [],
     marks: st?.marks && typeof st.marks === 'object' ? st.marks : {},
   };
-  return { ...base, source: effectiveSource(base) };
+  // v1 → v2 迁移:无 sources 时按旧字段推断(有 docUrl = 维护者文档源;否则原厂岗位包),并给岗位补 src
+  if (!out.sources.length) {
+    out.sources = out.docUrl
+      ? [{ id: MAIN_DOC_ID, type: 'doc', url: out.docUrl, label: '我的岗位表', addedAt: out.lastSync?.at || nowIso() }]
+      : [{ id: 'pack', type: 'pack', ...(out.packUrl ? { packUrl: out.packUrl } : {}) }];
+  }
+  const legacySrc = out.docUrl ? MAIN_DOC_ID : 'pack';
+  for (const j of out.jobs) if (!j.src) j.src = legacySrc;
+  out.source = out.sources.some((s) => s.type === 'doc') ? 'doc' : 'pack'; // 兼容字段:UI 发布按钮显隐等
+  return out;
 }
 
-// 全量快照、tmp+rename 原子写（同 tracker-sync 先例；台账/别的进程不会读到半截文件）
-export function saveJobState(st) {
+export const saveJobState = (st) => {
   const target = jobsFile();
-  fs.mkdirSync(HOME, { recursive: true });
+  fs.mkdirSync(path.dirname(target), { recursive: true });
   const tmp = `${target}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(st, null, 2) + '\n');
   fs.renameSync(tmp, target);
-}
+};
 
-// 解析智能表格链接：只要 docId + tab(subId) + viewId，login_t 等噪声参数一律剥掉
+// ===== 解析与纯函数 =====
+
 export function parseDocUrl(url) {
   let u;
   try { u = new URL(String(url || '').trim()); } catch { return null; }
@@ -59,7 +64,7 @@ export function parseDocUrl(url) {
   return { docId, subId, viewId, canonical: `https://docs.qq.com/smartsheet/${docId}?tab=${subId}${viewId ? `&viewId=${viewId}` : ''}` };
 }
 
-// 与台账 stableJobId 同配方（company|position|link，zh-CN 小写 FNV-1a）：内容不变 id 不变，重同步天然幂等
+// 与台账 stableJobId 同配方(company|position|link,zh-CN 小写 FNV-1a):内容不变 id 不变,跨源天然去重
 export function stableJobId(company, position, link) {
   const s = `${company}|${position}|${link}`.toLocaleLowerCase('zh-CN');
   let h = 2166136261;
@@ -67,8 +72,8 @@ export function stableJobId(company, position, link) {
   return `job-${(h >>> 0).toString(16)}`;
 }
 
-// 列映射：精确 → 前缀 → 包含，三级兜底（真实表头如「招聘截止日期」「投递链接or推文」靠后两级命中）。
-// deadline 判在 link 前（「网申时间」是截止不是链接）；内推码/联系人/批次为可选列，命中后折叠进备注展示。
+// 列映射:精确 → 前缀 → 包含,三级兜底(真实表头如「招聘截止日期」「投递链接or推文」靠后两级命中)。
+// deadline 判在 link 前(「网申时间」是截止不是链接);内推码/联系人/批次为可选列。
 const COLUMN_RULES = [
   ['company', ['公司', '公司名称', '企业', '单位', '厂商', '雇主']],
   ['position', ['岗位', '岗位方向', '招聘岗位', '职位', '职务', '方向']],
@@ -81,7 +86,7 @@ const COLUMN_RULES = [
   ['batch', ['批次', '届次', '招聘类型']],
   ['updatedAt', ['更新日期', '更新时间']],
 ];
-function matchColumn(name) {
+export function matchColumn(name) {
   const n = String(name || '').trim();
   if (!n) return null;
   for (const [key, names] of COLUMN_RULES) if (names.includes(n)) return key;
@@ -93,7 +98,7 @@ function matchColumn(name) {
 const pad2 = (n) => String(n).padStart(2, '0');
 const monthEnd = (y, m) => `${y}-${pad2(m)}-${pad2(new Date(y, m, 0).getDate())}`;
 
-// 截止时间归一：常见写法 → ISO 日期（分隔符含空格，如「2026 06 30」）；无年份按「已过顺延一年」（秋招语境）；认不出返回空串
+// 截止时间归一:常见写法 → ISO 日期(分隔符含空格,如「2026 06 30」);无年份按「已过顺延一年」;认不出返回空串
 export function parseDeadline(raw, now = new Date()) {
   const s = String(raw || '').trim().replace(/\s+/g, ' ');
   if (!s) return '';
@@ -116,9 +121,8 @@ export function parseDeadline(raw, now = new Date()) {
   return '';
 }
 
-// 噪声链接：头像/微信素材、指向文档自身的地址（docs.qq.com/link?url=… 跳转包装除外，解包后是真实岗位页）
+// 噪声链接:头像/微信素材、指向文档自身的地址(docs.qq.com/link?url=… 跳转包装除外,解包后是真实岗位页)
 const NOISE_LINK = /qlogo\.cn|thirdwx\.|^https?:\/\/docs\.qq\.com\/(?!link\?url=)/i;
-// 腾讯文档会把外链包装成 docs.qq.com/link?url=… 跳转，这里还原真实地址（同台账 normalizeTencentLink 语义）
 export function normalizeUrl(link, text = '') {
   let u = String(link || '').trim() || String(text || '').trim();
   if (!/^https?:\/\//i.test(u)) return '';
@@ -131,7 +135,6 @@ export function normalizeUrl(link, text = '') {
 
 const clean = (s) => String(s || '').replace(/\s+/g, ' ').trim();
 
-// 智能表格的行（表头 + 每格 {text, link}）→ 岗位数组。公司/岗位两列认不出直接报错，宁缺毋滥。
 export function mapRowsToJobs(header, rows, prevJobs = []) {
   const idx = {};
   header.forEach((name, i) => {
@@ -164,23 +167,28 @@ export function mapRowsToJobs(header, rows, prevJobs = []) {
       deadline: parseDeadline(deadlineRaw),
       deadlineRaw,
       note: cell('note').text,
-      // 内推信息结构化保存（展示时拼装，岗位包导出默认剥离 referralCode/referrer）
+      // 内推信息结构化保存(展示时拼装,岗位包导出默认剥离 referralCode/referrer)
       referralCode: cell('referralCode').text,
       referrer: cell('referrer').text,
       batch: cell('batch').text,
       addedAt: prevAt.get(id) || nowIso(),
-      // 文档没填更新日期的行：沿用上次的值（没有则入库时间），保证「最新优先」排序稳定
+      // 文档没填更新日期的行:沿用上次的值(没有则入库时间),保证「最新优先」排序稳定
       updatedAt: cell('updatedAt').text || prevUpd.get(id) || prevAt.get(id) || nowIso(),
     });
   }
   return { jobs };
 }
 
-// 页面内读取器（在 docs.qq.com 同源页面里执行，自动带登录态）。
-// 结构与插件 background.js 保持一致：字段名挂在键 "30"、单选选项表在键 "9"、文本/超链接分段收集。
+// 展示窗口:岗位库只露出最近更新的 N 条(完整数据仍在库中,供岗位包发布导出用)
+export const JOB_WINDOW = 250;
+export function recentJobs(st, limit = JOB_WINDOW) {
+  return [...st.jobs].sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''))).slice(0, limit);
+}
+
+// ===== 页面内读取器(在 docs.qq.com 同源页面里执行,自动带上页面 Cookie) =====
 const READ_SHEET = async (params) => {
   const { docId, subId, viewId } = params;
-  const out = { ok: false, needLogin: false, error: '', header: [], rows: [] };
+  const out = { ok: false, needLogin: false, error: '', title: '', header: [], rows: [] };
   const apiFetchJson = async (url) => {
     const resp = await fetch(url, { credentials: 'include' });
     if (!resp.ok) throw new Error('接口返回 ' + resp.status);
@@ -191,12 +199,12 @@ const READ_SHEET = async (params) => {
       && json.data.initialAttributedText.text && json.data.initialAttributedText.text[0]
       && json.data.initialAttributedText.text[0].smartsheet;
     if (!text) return null;
-    // 载荷形态会漂移：同一接口有时给 JSON 字符串、有时给已解析对象
+    // 载荷形态会漂移:同一接口有时给 JSON 字符串、有时给已解析对象
     let inner = null;
     try { inner = typeof text === 'string' ? JSON.parse(text) : text; } catch (_) { return null; }
     if (!Array.isArray(inner) || !inner[0] || typeof inner[0] !== 'object') return null;
-    // 封套随页次变化：首页 inner[0]['0'] 是字段定义树、行在 inner[0]['1'].c['2']['1']；
-    // 续页是 {t:3028} 节点（c['1'] 为 subId），行在 inner[0]['0'].c['2']['1']——漏了这层就永远只读到第一页
+    // 封套随页次变化:首页 inner[0]['0'] 是字段定义树、行在 inner[0]['1'].c['2']['1'];
+    // 续页是 {t:3028} 节点(c['1'] 为 subId),行在 inner[0]['0'].c['2']['1']——漏了这层就永远只读到第一页
     const head = inner[0]['0'];
     const isContinuation = !!(head && typeof head === 'object' && head.t === 3028);
     let schemaRec = null;
@@ -216,7 +224,7 @@ const READ_SHEET = async (params) => {
           if (value && typeof value === 'object' && !Array.isArray(value)
             && typeof value['30'] === 'string' && value['30'].length <= 20 && !fields[key]) {
             fields[key] = value['30'];
-            // 选项对照表：单选在键 "9" 下、17 类字段（批次/联系人等）在键 "17" 下，结构同为 {3:[{1:id,2:名称}]}
+            // 选项对照表:单选在键 "9" 下、17 类字段(批次/联系人等)在键 "17" 下,结构同为 {3:[{1:id,2:名称}]}
             for (const optKey of ['9', '17']) {
               const opts = value[optKey] && value[optKey]['3'];
               if (!Array.isArray(opts)) continue;
@@ -249,8 +257,8 @@ const READ_SHEET = async (params) => {
         text += run['2'];
       }
     }
-    // 日期字段没有文本分段，值是键 "4" 下的毫秒时间戳（10 位按秒）。日历日期按北京时区取日：
-    // 智能表格把「9月11日」存为北京零点对应的 UTC 毫秒（前一日 16:00Z），直接 toISOString 会差一天
+    // 日期字段没有文本分段,值是键 "4" 下的毫秒时间戳(10 位按秒)。日历日期按北京时区取日:
+    // 智能表格把「9月11日」存为北京零点对应的 UTC 毫秒(前一日 16:00Z),直接 toISOString 会差一天
     if (!text && cell && typeof cell['4'] === 'string' && /^\d{10,13}$/.test(cell['4'])) {
       const n = Number(cell['4']);
       const ms = n > 1e11 ? n : n * 1000;
@@ -262,12 +270,13 @@ const READ_SHEET = async (params) => {
     const meta = await apiFetchJson(`https://docs.qq.com/dop-api/opendoc?id=${encodeURIComponent(docId)}&outformat=1&normal=1`);
     const localPadId = (meta && meta.bodyData && meta.bodyData.localPadId) || '';
     if (!localPadId) { out.needLogin = true; out.error = '没有读到文档信息——多半是未登录腾讯文档或无查看权限'; return out; }
+    out.title = (meta.bodyData && (meta.bodyData.initialTitle || meta.bodyData.pageTitle)) || '';
     const fields = {};
     const fieldOptions = {};
     let fieldsReady = false;
     const collected = new Map();
     const step = 60;
-    const limit = 5000; // 翻页行数上限（实际以响应 maxrow 为准，正常到最后一页即停）
+    const limit = 5000; // 翻页行数上限(实际以响应 maxrow 为准,正常到最后一页即止)
     for (let start = 0; start < limit; start += step) {
       const query = `padId=${encodeURIComponent('300000000$' + localPadId)}&subId=${encodeURIComponent(subId)}`
         + `&startrow=${start}&endrow=${start + step - 1}&outformat=1&normal=1&needSheetState=2`
@@ -284,7 +293,7 @@ const READ_SHEET = async (params) => {
       let added = 0;
       ids.forEach((rowId) => { if (!collected.has(rowId)) { collected.set(rowId, chunk.rows[rowId]); added += 1; } });
       if (!ids.length || !added) break;
-      if (chunk.maxrow && start + step >= chunk.maxrow) break; // 响应自带总行数，读完最后一页即止
+      if (chunk.maxrow && start + step >= chunk.maxrow) break; // 响应自带总行数,读完最后一页即止
     }
     if (!fieldsReady) { out.needLogin = true; out.error = '没有读到表格结构——未登录、无权限或不是智能表格'; return out; }
     const fieldIds = Object.keys(fields);
@@ -293,7 +302,7 @@ const READ_SHEET = async (params) => {
       const cellsMap = (collected.get(rowId) && collected.get(rowId)['1']) || {};
       out.rows.push(fieldIds.map((fieldId) => {
         const cell = cellsMap[fieldId];
-        // 选项类字段（单选 "9" / 17 类）：单元格存选项 ID，用字段定义里的对照表还原成名称
+        // 选项类字段(单选 "9" / 17 类):单元格存选项 ID,用字段定义里的对照表还原成名称
         const ids = cell && (Array.isArray(cell['9']) ? cell['9'] : (Array.isArray(cell['17']) ? cell['17'] : null));
         if (ids) {
           const opts = fieldOptions[fieldId] || {};
@@ -307,10 +316,178 @@ const READ_SHEET = async (params) => {
   } catch (e) { out.error = String((e && e.message) || e); return out; }
 };
 
-// ===== 岗位包（对外分发的岗位快照；不含文档地址与本地标记）=====
+// ===== docsqq 浏览器任务串行化:同一 profile 不并发开浏览器 =====
+let docsChain = Promise.resolve();
+const withDocsLock = (fn) => {
+  const run = docsChain.then(fn, fn);
+  docsChain = run.catch(() => {});
+  return run;
+};
 
-// 链接里的内推参数（recommendCode/referralCode 只是归属标记，去掉不影响投递）；
-// SPA 路由的查询串常挂在 hash 里（#/path?referralCode=…），两处都要洗
+// 试读一个文档源(不落库):返回表头/行数/映射/样例,供添加前人工确认
+export function previewDocSource(url, { headed = false } = {}) {
+  return withDocsLock(async () => {
+    const parsed = parseDocUrl(url);
+    if (!parsed) throw new Error('不是有效的腾讯智能表格链接（需 docs.qq.com/smartsheet/… 且带 tab 参数）');
+    const ctx = await launch('docsqq', { headless: !headed });
+    try {
+      const page = ctx.pages()[0] || (await ctx.newPage());
+      await page.goto(DOCS_ORIGIN, { waitUntil: 'domcontentloaded', timeout: 45000 }).catch(() => {});
+      const r = await page.evaluate(READ_SHEET, { docId: parsed.docId, subId: parsed.subId, viewId: parsed.viewId });
+      if (r.needLogin) return { ok: false, error: r.error };
+      if (!r.ok) return { ok: false, error: r.error || '读取文档失败' };
+      const header = r.header.map(clean);
+      const idx = {};
+      header.forEach((name, i) => {
+        const key = matchColumn(name);
+        if (key && !(key in idx)) idx[key] = i;
+      });
+      const missing = ['company', 'position'].filter((k) => !(k in idx));
+      if (missing.length) {
+        return { ok: false, error: `表头里没认出「公司/岗位」列（现有列：${header.join('、') || '空'}）——请在文档里调整列名后重试`, header };
+      }
+      const valid = r.rows.filter((cells) => clean(cells[idx.company]?.text) && clean(cells[idx.position]?.text));
+      return {
+        ok: true, title: r.title, header, rowCount: valid.length, canonical: parsed.canonical,
+        sample: valid.slice(0, 3).map((cells) => header.map((_, i) => clean(cells[i]?.text))),
+      };
+    } finally {
+      await ctx.close().catch(() => {});
+    }
+  });
+}
+
+// 添加用户文档源:试读确认后入库并立即同步一次。同一文档重复添加返回已有 id。
+export async function addDocSource(url, { headed = false, log = () => {} } = {}) {
+  const preview = await previewDocSource(url, { headed });
+  if (!preview.ok) return preview;
+  const st = readJobState();
+  const dupe = st.sources.find((s) => s.type === 'doc' && parseDocUrl(s.url)?.docId === parseDocUrl(preview.canonical).docId);
+  if (dupe) return { ok: false, error: '这份文档已经在岗位源列表里', id: dupe.id };
+  const id = 'doc-' + stableJobId(preview.canonical, 'source', '').slice(4, 12);
+  st.sources.push({ id, type: 'doc', url: preview.canonical, label: preview.title || '腾讯文档表', addedAt: nowIso() });
+  saveJobState(st);
+  log(`📋 岗位源已添加：${preview.title || preview.canonical}`);
+  const r = await syncSource(id, { headed, log });
+  return { ok: r.ok, id, count: r.count, error: r.error };
+}
+
+export function removeDocSource(id) {
+  const st = readJobState();
+  const src = st.sources.find((s) => s.id === id);
+  if (!src) throw new Error('岗位源不存在');
+  if (src.id === MAIN_DOC_ID) throw new Error('维护者主文档源不可删除（可用 ats jobs sync 更新）');
+  st.sources = st.sources.filter((s) => s.id !== id);
+  const before = st.jobs.length;
+  st.jobs = st.jobs.filter((j) => j.src !== id);
+  saveJobState(st);
+  return { removed: src.label || id, jobsRemoved: before - st.jobs.length };
+}
+
+// 同步单个岗位源:pack=读远程/内置快照;doc=无头读取智能表格。分源整表替换,其他来源不动,标记保留。
+export async function syncSource(id, { log = () => {}, headed = false } = {}) {
+  const st = readJobState();
+  const src = st.sources.find((s) => s.id === id);
+  if (!src) throw new Error('岗位源不存在');
+  const finish = (ok, extra = {}) => {
+    st.lastSync = { at: nowIso(), count: st.jobs.length, error: ok ? null : (extra.error || '同步失败') };
+    saveJobState(st);
+    return { ok, source: id, count: st.jobs.length, ...extra };
+  };
+  if (src.type === 'pack') {
+    try {
+      const payload = await readPackSource(src.packUrl, log);
+      const jobs = applyJobPack(payload, st.jobs.filter((j) => j.src === 'pack')).map((j) => ({ ...j, src: 'pack' }));
+      const prevIds = new Set(st.jobs.filter((j) => j.src === 'pack').map((j) => j.id));
+      const added = jobs.filter((j) => !prevIds.has(j.id)).length;
+      const removed = st.jobs.filter((j) => j.src === 'pack' && !jobs.some((x) => x.id === j.id)).length;
+      st.jobs = [...st.jobs.filter((j) => j.src !== 'pack'), ...jobs];
+      if (payload.generatedAt) st.packAt = payload.generatedAt;
+      return finish(true, { count: jobs.length, added, removed });
+    } catch (e) {
+      const msg = String(e?.message || e);
+      log(`⚠️ 岗位包同步失败：${msg}`);
+      return finish(false, { error: msg, needLogin: false });
+    }
+  }
+  const parsed = parseDocUrl(src.url);
+  if (!parsed) return finish(false, { error: '文档地址无效（需 docs.qq.com/smartsheet/… 含 tab 参数）' });
+  const ctx = await launch('docsqq', { headless: !headed });
+  try {
+    const page = ctx.pages()[0] || (await ctx.newPage());
+    await page.goto(DOCS_ORIGIN, { waitUntil: 'domcontentloaded', timeout: 45000 }).catch(() => {});
+    const r = await page.evaluate(READ_SHEET, { docId: parsed.docId, subId: parsed.subId, viewId: parsed.viewId });
+    if (r.needLogin) {
+      log(`⚠️ ${src.label || '文档源'}：${r.error}`);
+      return finish(false, { error: r.error, needLogin: true });
+    }
+    if (!r.ok) throw new Error(r.error || '读取文档失败');
+    log(`📄 ${src.label || '文档源'} 表头：${r.header.map(clean).join('、')}`);
+    const prev = st.jobs.filter((j) => j.src === id);
+    const { jobs, error } = mapRowsToJobs(r.header, r.rows, prev);
+    if (error) return finish(false, { error });
+    const prevIds = new Set(prev.map((j) => j.id));
+    const added = jobs.filter((j) => !prevIds.has(j.id)).length;
+    const removed = prev.filter((j) => !jobs.some((x) => x.id === j.id)).length;
+    st.jobs = [...st.jobs.filter((j) => j.src !== id), ...jobs.map((j) => ({ ...j, src: id }))];
+    src.lastSync = { at: nowIso(), count: jobs.length, error: null };
+    log(`📋 ${src.label || '岗位源'} 已同步：共 ${jobs.length} 条（新增 ${added}，移除 ${removed}）`);
+    return finish(true, { count: jobs.length, added, removed });
+  } catch (e) {
+    const msg = String(e?.message || e);
+    log(`⚠️ ${src.label || '文档源'} 同步失败：${msg}`);
+    return finish(false, { error: msg });
+  } finally {
+    await ctx.close().catch(() => {});
+  }
+}
+
+// 跨源去重:同一岗位(同 id)出现在多个来源时,保留 sources 列表顺序靠前的
+function dedupeBySourceOrder(st) {
+  const seen = new Set();
+  for (const src of st.sources) {
+    st.jobs = st.jobs.filter((j) => {
+      if (j.src !== src.id) return true;
+      if (seen.has(j.id)) return false;
+      seen.add(j.id);
+      return true;
+    });
+  }
+}
+
+// 同步全部岗位源(顺序执行);指定 id 时只同步该源
+export async function syncJobs({ log = () => {}, headed = false, id } = {}) {
+  const st = readJobState();
+  const targets = id ? [id] : st.sources.map((s) => s.id);
+  let failed = null;
+  for (const tid of targets) {
+    try {
+      await syncSource(tid, { log, headed });
+      const cur = readJobState();
+      dedupeBySourceOrder(cur);
+      saveJobState(cur);
+    } catch (e) { failed = String(e?.message || e); }
+  }
+  const st2 = readJobState();
+  return { ok: !failed, error: failed, count: st2.jobs.length, sources: st2.sources.length };
+}
+
+// 本地标记(已投/不投/关注):只写覆盖层,永不写回岗位源
+export function setJobMark(id, patch) {
+  const st = readJobState();
+  if (!st.jobs.some((j) => j.id === id)) throw new Error('岗位不存在（可能已被同步移除）');
+  const next = { ...(st.marks[id] || {}) };
+  for (const k of ['applied', 'skip', 'star']) if (k in patch) next[k] = !!patch[k];
+  next.at = nowIso();
+  st.marks[id] = next;
+  saveJobState(st);
+  return next;
+}
+
+// ===== 岗位包(对外分发的岗位快照;只含维护者主文档源,不含文档地址与本地标记) =====
+
+// 链接里的内推参数(recommendCode/referralCode 只是归属标记,去掉不影响投递);
+// SPA 路由的查询串常挂在 hash 里(#/path?referralCode=…),两处都要洗
 const REFERRAL_PARAMS = [/^recommendcode$/i, /^referralcode$/i];
 export function scrubLink(link) {
   if (!link) return '';
@@ -338,14 +515,15 @@ export function scrubLink(link) {
   } catch { return link; }
 }
 
-// 从本机岗位库构建岗位包。默认剥离 referralCode/referrer 字段并清洗链接里的内推参数
-// （内推是别人给的资源，不随开源扩散），ID 按清洗后的内容重算——文档里换内推码不会让包使用方的岗位 ID 漂移。
+// 从主文档源构建岗位包。默认剥离 referralCode/referrer 字段并清洗链接里的内推参数
+// (内推是别人给的资源,不随开源扩散),ID 按清洗后的内容重算——文档里换内推码不会让包使用方的岗位 ID 漂移。
 // --full 保留全部原始内容。
 export function buildJobPack({ full = false } = {}) {
   const st = readJobState();
-  if (!st.jobs.length) throw new Error('本机岗位库是空的——先在维护者机器上 ats jobs sync');
+  const mainJobs = st.jobs.filter((j) => j.src === MAIN_DOC_ID);
+  if (!mainJobs.length) throw new Error('主文档源没有岗位——先在维护者机器上 ats jobs sync');
   let stripped = 0;
-  const jobs = st.jobs.map((j) => {
+  const jobs = mainJobs.map((j) => {
     if (full) {
       return {
         id: j.id, company: j.company, position: j.position,
@@ -370,7 +548,7 @@ export function buildJobPack({ full = false } = {}) {
   return { pack, stripped };
 }
 
-// 岗位包落盘（默认仓库根目录 jobs-pack.json，随仓库/安装包分发）
+// 岗位包落盘(默认仓库根目录 jobs-pack.json,随仓库/安装包分发)
 export function writeJobPack({ full = false, out } = {}) {
   const { pack, stripped } = buildJobPack({ full });
   const target = out || BUNDLED_PACK;
@@ -380,7 +558,7 @@ export function writeJobPack({ full = false, out } = {}) {
   return { target, count: pack.count, stripped };
 }
 
-// 读岗位包：远程优先（默认公开仓库的 raw 直链，维护者 push 后用户点同步即最新），失败回落本地内置包（离线可用）
+// 读岗位包:远程优先(默认公开仓库的 raw 直链,维护者 push 后用户点同步即最新),失败回落本地内置包(离线可用)
 const DEFAULT_PACK_URL = 'https://gitee.com/YinTianZheng/campus-apply-tracker/raw/master/jobs-pack.json';
 export async function readPackSource(packUrl, log = () => {}) {
   const url = packUrl || DEFAULT_PACK_URL;
@@ -400,7 +578,7 @@ export async function readPackSource(packUrl, log = () => {}) {
   } finally { clearTimeout(timer); }
 }
 
-// 校验并应用岗位包：白名单字段、缺 id 重算、按 id 去重、保留既有 addedAt
+// 校验并应用岗位包:白名单字段、缺 id 重算、按 id 去重、保留既有 addedAt
 export function applyJobPack(payload, prevJobs = []) {
   if (!payload || payload.kind !== PACK_KIND || !Array.isArray(payload.jobs)) {
     throw new Error('不是有效的岗位包（kind/schemaVersion 不符）');
@@ -429,86 +607,9 @@ export function applyJobPack(payload, prevJobs = []) {
   return jobs;
 }
 
-// 同步岗位库（按 source 分流）：
-//   doc（维护者）：无头匿名读取智能表格 → 列映射 → 整表替换 jobs；
-//   pack（普通用户）：读内置/远程岗位包 → 白名单清洗 → 整表替换 jobs。
-// 两种模式失败都不覆盖已有岗位，只记 lastSync.error。
-export async function syncJobs({ log = () => {}, headed = false } = {}) {
-  const st = readJobState();
-  if (st.source === 'pack') {
-    try {
-      const payload = await readPackSource(st.packUrl, log);
-      const jobs = applyJobPack(payload, st.jobs);
-      const prevIds = new Set(st.jobs.map((j) => j.id));
-      const added = jobs.filter((j) => !prevIds.has(j.id)).length;
-      const removed = st.jobs.filter((j) => !jobs.some((x) => x.id === j.id)).length;
-      st.jobs = jobs;
-      st.packAt = String(payload.generatedAt || '') || null; // 岗位包生成时间,界面据此展示数据新鲜度
-      st.lastSync = { at: nowIso(), count: jobs.length, error: null };
-      saveJobState(st);
-      log(`📋 岗位包已同步：共 ${jobs.length} 条（新增 ${added}，移除 ${removed}）`);
-      return { ok: true, source: 'pack', count: jobs.length, added, removed };
-    } catch (e) {
-      st.lastSync = { at: nowIso(), count: st.jobs.length, error: String(e?.message || e) };
-      saveJobState(st);
-      return { ok: false, source: 'pack', error: String(e?.message || e) };
-    }
-  }
-  const parsed = parseDocUrl(st.docUrl);
-  if (!parsed) throw new Error('岗位文档地址无效或未配置（需 docs.qq.com/smartsheet/… 智能表格链接，含 tab 参数）');
-  const ctx = await launch('docsqq', { headless: !headed });
-  try {
-    const page = ctx.pages()[0] || (await ctx.newPage());
-    await page.goto(DOCS_ORIGIN, { waitUntil: 'domcontentloaded', timeout: 45000 }).catch(() => {});
-    const r = await page.evaluate(READ_SHEET, { docId: parsed.docId, subId: parsed.subId, viewId: parsed.viewId });
-    if (r.needLogin) {
-      st.lastSync = { at: nowIso(), count: st.jobs.length, error: r.error };
-      saveJobState(st);
-      return { ok: false, needLogin: true, error: r.error };
-    }
-    if (!r.ok) throw new Error(r.error || '读取文档失败');
-    log(`📄 表头：${r.header.map(clean).join('、')}`);
-    const { jobs, error } = mapRowsToJobs(r.header, r.rows, st.jobs);
-    if (error) {
-      st.lastSync = { at: nowIso(), count: st.jobs.length, error };
-      saveJobState(st);
-      return { ok: false, error };
-    }
-    const prevIds = new Set(st.jobs.map((j) => j.id));
-    const added = jobs.filter((j) => !prevIds.has(j.id)).length;
-    const removed = st.jobs.filter((j) => !jobs.some((x) => x.id === j.id)).length;
-    st.jobs = jobs;
-    st.lastSync = { at: nowIso(), count: jobs.length, error: null };
-    saveJobState(st);
-    log(`📋 岗位库已同步：共 ${jobs.length} 条（新增 ${added}，移除 ${removed}）`);
-    return { ok: true, count: jobs.length, added, removed };
-  } finally {
-    await ctx.close().catch(() => {});
-  }
-}
+// ===== 发布防呆 + 自动发布流水线(维护者;只消费主文档源) =====
 
-// 展示窗口：岗位库只露出最近更新的 N 条（完整数据留在 jobs.json，供岗位包发布导出用）
-export const JOB_WINDOW = 250;
-export function recentJobs(st, limit = JOB_WINDOW) {
-  return [...st.jobs].sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''))).slice(0, limit);
-}
-
-// 本地标记（applied/skip/star）：只写覆盖层，永不写回文档
-export function setJobMark(id, patch) {
-  const st = readJobState();
-  if (!st.jobs.some((j) => j.id === id)) throw new Error('岗位不存在（可能已被文档同步移除）');
-  const next = { ...(st.marks[id] || {}) };
-  for (const k of ['applied', 'skip', 'star']) if (k in patch) next[k] = !!patch[k];
-  next.at = nowIso();
-  st.marks[id] = next;
-  saveJobState(st);
-  return next;
-}
-
-// ===== 自动发布流水线（维护者）：sync → 防呆检查 → pack → git 提交推送 =====
-// 定时触发走控制台 API（runJob 守卫避免与查询抢浏览器）；LaunchAgent/schtasks 只负责定时 curl 本地端点。
-
-// 发布防呆：绝对下限 + 相对上一版跌幅过半即拦截——文档被清空/误删时绝不把坏包发出去
+// 发布防呆:绝对下限 + 相对上一版跌幅过半即拦截——文档被清空/误删时绝不把坏包发出去
 export function evaluatePublish({ count, prevCount, minCount = 100 } = {}) {
   if (!Number.isFinite(count) || count < minCount) return { ok: false, reason: `岗位数 ${count ?? '无'} 低于发布下限 ${minCount}` };
   if (Number.isFinite(prevCount) && prevCount > 0 && count < prevCount * 0.5) {
@@ -520,12 +621,14 @@ export function evaluatePublish({ count, prevCount, minCount = 100 } = {}) {
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const git = (args) => execFileSync('git', args, { cwd: REPO_ROOT, encoding: 'utf8' }).trim();
 
-// 发布岗位包：同步文档 → 防呆 → 导出 → 只提交 jobs-pack.json（工作区其他改动不掺和）→ 推送当前分支。
-// push:false 时只提交本地（--no-push：先人工确认再手动推）。推送失败时已提交本地，靠返回值/通知提醒人工补推。
+// 发布岗位包:同步主文档源 → 防呆 → 导出 → 只提交 jobs-pack.json(工作区其他改动不掺和) → 推送当前分支。
+// push:false 时只提交本地(--no-push:先人工确认再手动推)。推送失败时已提交本地,靠返回值/通知提醒人工补推。
 export async function publishJobs({ log = () => {}, minCount, push = true } = {}) {
   const st0 = readJobState();
-  if (st0.source !== 'doc') throw new Error('只有维护者（文档模式）机器能发布岗位包');
-  const r = await syncJobs({ log });
+  if (!st0.sources.some((s) => s.type === 'doc' && s.id === MAIN_DOC_ID)) {
+    throw new Error('只有维护者（配有主文档源）的机器能发布岗位包');
+  }
+  const r = await syncSource(MAIN_DOC_ID, { log });
   if (!r.ok) throw new Error(`文档同步失败：${r.error}`);
   const prevPack = readJson(BUNDLED_PACK);
   const verdict = evaluatePublish({ count: r.count, prevCount: prevPack && prevPack.count, minCount });
