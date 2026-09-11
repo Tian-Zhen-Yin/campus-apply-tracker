@@ -34,6 +34,12 @@ ats jobs publish   # 一键流水线:同步→防呆检查→打包→git 提交
 - macOS:双击「安装.command」;首次被 Gatekeeper 拦截属正常,见包内《必读-安装说明》;
 - Windows:解压后右键「以 PowerShell 运行」`install.ps1`。
 
+**方式 A'(会终端?更快且免 Gatekeeper 拦截)**:命令行拉取的文件没有隔离属性,全程不触发安全拦截——
+- macOS:`curl -fsSL https://gitee.com/YinTianZheng/campus-apply-tracker/raw/master/scripts/quick-install.sh | bash`
+- Windows(PowerShell):`irm https://gitee.com/YinTianZheng/campus-apply-tracker/raw/master/scripts/quick-install.ps1 | iex`
+
+**方式 A''(Homebrew)**:`brew install --cask Tian-Zhen-Yin/tap/campus-apply-tracker`(需要 Node.js ≥ 18 与 Chrome;重复执行 `brew upgrade` 即更新)。
+
 **方式 B(源码,需要 Node.js ≥ 18)**:
 
 ```bash
