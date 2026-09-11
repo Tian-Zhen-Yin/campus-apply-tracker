@@ -39,12 +39,14 @@ jobs:
             echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
             echo "TAG=$GITHUB_REF_NAME" >> "$GITHUB_ENV"
           fi
+          # 插件包名跟插件自身 manifest 版本走：控制台发版但插件没改时，主页直链(版本钉死)不断链
+          echo "PLUGIN_VERSION=$(node -p "require('./plugin/manifest.json').version")" >> "$GITHUB_ENV"
       - name: 打包 Mac + Windows + 收录插件
         run: |
           export TRACKER_REPO="$GITHUB_WORKSPACE/tracker-repo"
           bash scripts/pack-offline-full.sh "$VERSION"
           bash scripts/pack-full-windows.sh "$VERSION"
-          (cd plugin && zip -qr "$GITHUB_WORKSPACE/dist/job-capture-assistant-v$VERSION.zip" .)
+          (cd plugin && zip -qr "$GITHUB_WORKSPACE/dist/job-capture-assistant-v$PLUGIN_VERSION.zip" .)
           cd dist
           cp "校招投递管理-完整版-Mac-v$VERSION.zip" "campus-apply-tracker-full-Mac-v$VERSION.zip"
           cp "校招投递管理-完整版-Windows-v$VERSION.zip" "campus-apply-tracker-full-Windows-v$VERSION.zip"
