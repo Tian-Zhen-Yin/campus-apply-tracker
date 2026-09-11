@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { SITES, SITE_KEYS } from './config.mjs';
 import { HOME, ensureDirs, profileDir, capturedFile, metaFile } from './paths.mjs';
-import { pad, readJson, table } from './util.mjs';
+import { pad, readJson, prompt, table } from './util.mjs';
 import { login } from './login.mjs';
 import { capture } from './capture.mjs';
 import { status } from './status.mjs';
@@ -45,6 +45,8 @@ function usage() {
   jobs sync            同步全部岗位源（--headed 显示浏览器；--source <id> 只同步指定源）
   jobs source add <url>    添加腾讯智能表格岗位源（试读预览确认后入库）
   jobs source remove <id>  移除岗位源
+  jobs capture <url>   识别投递网址：无头打开岗位详情页,提取公司/岗位/城市收录进「手动收录」源
+  jobs login           打开浏览器登录腾讯文档（扫码一次;之后私密文档源也可同步）
   jobs pack [--full]   导出岗位包 jobs-pack.json 随仓库分发（维护者用；默认剥离内推码/联系人，--full 保留）
   jobs publish         发布流水线：同步文档→防呆检查→打包→git 提交推送（维护者用；定时触发建议走控制台）
   keepalive            心跳保活（--once 单轮，--interval N 分钟）
@@ -132,6 +134,27 @@ ensureDirs();
           const r = removeDocSource(args[2]);
           console.log(`已移除「${r.removed}」，其 ${r.jobsRemoved} 条岗位一并移除（标记保留）`);
         } catch (e) { console.log(`✗ ${e.message}`); }
+        break;
+      }
+      if (sub === 'capture') {
+        const { captureJob } = await import('./jobcapture.mjs');
+        const { saveCapturedJob } = await import('./jobs.mjs');
+        const r = await captureJob(args[1], { headed: opt('--headed') });
+        if (!r.ok) { console.log(`✗ ${r.error}`); break; }
+        console.log(`识别结果：公司「${r.company}」 岗位「${r.position}」 城市「${r.city || '—'}"`);
+        const ok = await prompt('确认收录到「手动收录」源？(y/n) > ');
+        if (ok.toLowerCase().startsWith('y')) {
+          const saved = saveCapturedJob({ company: r.company, position: r.position, city: r.city, link: r.url });
+          console.log(saved.updated ? '已更新同内容旧条目' : '已收录');
+        } else console.log('已取消');
+        break;
+      }
+      if (sub === 'login') {
+        const { openDocsLogin } = await import('./jobs.mjs');
+        const s = await openDocsLogin((m) => console.log(m));
+        await prompt('扫码/登录完成后，回到终端按回车关闭浏览器窗口 > ');
+        await s.close();
+        console.log('登录态已保存到本机 profile——之后同步/试读会自动带上');
         break;
       }
       if (sub === 'pack') {

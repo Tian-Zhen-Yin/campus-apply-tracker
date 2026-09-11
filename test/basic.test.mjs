@@ -14,7 +14,8 @@ const { recordKey, extractApplications, normalizeStatus } = await import(`${SRC}
 const { setCorrection, setArchived, applyToRecords, readCorrections, readArchived } = await import(`${SRC}corrections.mjs`);
 const { enrichMailRows, bindMail, unbindMail, candidatesFor } = await import(`${SRC}maillinks.mjs`);
 const { mailId, classifyMail, extractScheduleTip } = await import(`${SRC}mail.mjs`);
-const { parseDocUrl, stableJobId, parseDeadline, mapRowsToJobs, setJobMark, readJobState, saveJobState, buildJobPack, applyJobPack, readPackSource, evaluatePublish, recentJobs, removeDocSource, syncSource, extractCompany } = await import(`${SRC}jobs.mjs`);
+const { parseDocUrl, stableJobId, parseDeadline, mapRowsToJobs, setJobMark, readJobState, saveJobState, buildJobPack, applyJobPack, readPackSource, evaluatePublish, recentJobs, removeDocSource, syncSource, extractCompany, saveCapturedJob } = await import(`${SRC}jobs.mjs`);
+const { normalizeCaptured, inferCity } = await import(`${SRC}jobcapture.mjs`);
 
 const ex = (t) => extractApplications(t);
 const one = (job, dept, status) => JSON.stringify({ content: [{ jobName: job, deptName: dept, statusName: status }] });
@@ -294,12 +295,48 @@ test('构建岗位包只含主文档源:用户自助源岗位不外泄', () => {
     jobs: [
       { id: 'job-main-1', src: 'doc', company: '主文档公司', position: '算法', link: 'https://main.com/x?recommendCode=LEAK1', updatedAt: '2026-09-10' },
       { id: 'job-user1-1', src: 'doc-user1', company: '同学表公司', position: '后端', link: '', updatedAt: '2026-09-11' },
+      { id: 'job-manual-1', src: 'manual', company: '识别收录公司', position: '测试开发工程师', link: 'https://job.com/1', updatedAt: '2026-09-12' },
     ],
   });
   const { pack } = buildJobPack({});
-  assert.ok(pack.jobs.every((j) => j.company !== '同学表公司'), '用户自助源岗位不进岗位包');
+  assert.ok(pack.jobs.every((j) => j.company !== '同学表公司' && j.company !== '识别收录公司'), '用户自助源与手动收录岗位都不进岗位包');
   assert.equal(pack.jobs.length, 1);
   assert.ok(!/recommendcode/i.test(pack.jobs[0].link), '主文档链接的内推参数照常清洗');
+});
+
+test('识别投递网址:normalizeCaptured 推断(城市白名单/岗位词/平台名剔除)', () => {
+  const r = normalizeCaptured({
+    url: 'https://campus.example.com/position/123',
+    hostname: 'campus.example.com',
+    title: '大模型算法工程师',
+    company: '', // 页面没给出
+    city: '北京市海淀区',
+    headingTexts: ['大模型算法工程师', '所属团队:Seed'],
+    pageTitle: '字节跳动_大模型算法工程师_职位详情',
+    pageText: '工作地点: 北京\n职责:负责大模型训练\n要求:硕士以上',
+  });
+  assert.equal(r.company, '字节跳动', '公司从页面标题段推断');
+  assert.equal(r.position, '大模型算法工程师');
+  assert.equal(r.city, '北京', '城市白名单命中(带标签优先)');
+  assert.equal(inferCity('base 上海 发货'), '上海', '无标签全文命中');
+  assert.equal(inferCity('没有城市信息'), '');
+  // 招聘平台名不作公司
+  const r2 = normalizeCaptured({ url: 'https://a.com/1', hostname: 'a.com', title: '后端开发工程师', company: 'BOSS直聘', city: '', headingTexts: ['后端开发工程师'], pageTitle: '牛客网_后端开发工程师', pageText: '北京' });
+  assert.ok(r2.company !== 'BOSS直聘', '平台名被剔除');
+});
+
+test('识别收录入库:进手动源,同内容重复收录=更新不重复;manual 源缺失自动补', () => {
+  fs.rmSync(path.join(process.env.ATS_STATUS_HOME, 'jobs.json'), { force: true });
+  const st = readJobState(); // 全新用户 → 迁移应自动补 manual 源
+  assert.ok(st.sources.some((s) => s.id === 'manual' && s.type === 'manual'), '内建手动收录源自动补上');
+  const a = saveCapturedJob({ company: '商汤科技', position: '大模型算法工程师', city: '上海', link: 'https://sensecore.com/job/1' });
+  assert.equal(a.updated, false);
+  const b = saveCapturedJob({ company: '商汤科技', position: '大模型算法工程师', city: '上海', link: 'https://sensecore.com/job/1' });
+  assert.equal(b.updated, true, '同内容重复收录=更新');
+  const st2 = readJobState();
+  assert.equal(st2.jobs.filter((j) => j.src === 'manual').length, 1);
+  assert.equal(st2.jobs[0].company, '商汤科技');
+  assert.throws(() => removeDocSource('manual'), /手动收录源不可删除/);
 });
 
 test('岗位包读取:远程优先,失败回落本地内置包', async () => {

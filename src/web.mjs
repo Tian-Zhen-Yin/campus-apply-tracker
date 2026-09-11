@@ -19,7 +19,8 @@ import { startRecording, attachRecorder } from './capture.mjs';
 import { extractApplications } from './extract.mjs';
 import { chromium } from 'playwright';
 import { writeTrackerSync } from './trackerSync.mjs';
-import { readJobState, recentJobs, syncJobs, setJobMark, publishJobs, previewDocSource, addDocSource, removeDocSource } from './jobs.mjs';
+import { readJobState, recentJobs, syncJobs, setJobMark, publishJobs, previewDocSource, addDocSource, removeDocSource, saveCapturedJob, openDocsLogin } from './jobs.mjs';
+import { captureJob } from './jobcapture.mjs';
 import { notify } from './notify.mjs';
 import { applyToRecords, setCorrection, isValidStatus, readArchived, setArchived } from './corrections.mjs';
 
@@ -793,6 +794,29 @@ async function route(req, res, url) {
       try {
         const marks = setJobMark(id, { applied: body.applied, skip: body.skip, star: body.star });
         return json(res, 200, { ok: true, marks });
+      } catch (e) { return json(res, 400, { error: String(e?.message || e) }); }
+    }
+    case '/api/jobs/capture': {
+      // 识别投递网址(移植自一键收录插件):开无头浏览器读岗位页,只识别不落库
+      if (busy && !busy.done) return json(res, 409, { error: `${busy.kind} 进行中，稍后再试` });
+      try {
+        const r = await captureJob(String(body.url || ''));
+        return json(res, 200, r);
+      } catch (e) { return json(res, 400, { ok: false, error: String(e?.message || e) }); }
+    }
+    case '/api/jobs/capture/save': {
+      try {
+        const r = saveCapturedJob({ company: body.company, position: body.position, city: body.city, link: body.link });
+        log(`🔍 已收录岗位：${String(body.company)}「${String(body.position)}」${r.updated ? '（覆盖同内容旧条目）' : ''}`);
+        return json(res, 200, { ok: true, ...r });
+      } catch (e) { return json(res, 400, { error: String(e?.message || e) }); }
+    }
+    case '/api/jobs/login': {
+      // 私密文档登录通道:弹真浏览器扫码一次,登录态存 docsqq profile;用户关窗即保存,端点不等待
+      if (busy && !busy.done) return json(res, 409, { error: '有任务正在执行，稍后再试' });
+      try {
+        await openDocsLogin(log); // 浏览器窗口交给用户:扫码后手动关闭,登录态随持久 profile 保存
+        return json(res, 200, { ok: true });
       } catch (e) { return json(res, 400, { error: String(e?.message || e) }); }
     }
     case '/api/jobs/publish': {

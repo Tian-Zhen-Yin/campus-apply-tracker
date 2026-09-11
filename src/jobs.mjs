@@ -37,6 +37,11 @@ export function readJobState() {
       ? [{ id: MAIN_DOC_ID, type: 'doc', url: out.docUrl, label: '我的岗位表', addedAt: out.lastSync?.at || nowIso() }]
       : [{ id: 'pack', type: 'pack', ...(out.packUrl ? { packUrl: out.packUrl } : {}) }];
   }
+  // 内建「手动收录」源(识别投递网址/人工录入的落点):缺失自动补,排在原厂包之后
+  if (!out.sources.some((s) => s.id === 'manual')) {
+    const at = out.sources.length;
+    out.sources.splice(Math.min(1, at), 0, { id: 'manual', type: 'manual', label: '手动收录', addedAt: nowIso() });
+  }
   const legacySrc = out.docUrl ? MAIN_DOC_ID : 'pack';
   for (const j of out.jobs) if (!j.src) j.src = legacySrc;
   out.source = out.sources.some((s) => s.type === 'doc') ? 'doc' : 'pack'; // 兼容字段:UI 发布按钮显隐等
@@ -402,6 +407,7 @@ export function removeDocSource(id) {
   const src = st.sources.find((s) => s.id === id);
   if (!src) throw new Error('岗位源不存在');
   if (src.id === MAIN_DOC_ID) throw new Error('维护者主文档源不可删除（可用 ats jobs sync 更新）');
+  if (src.type === 'manual') throw new Error('手动收录源不可删除（可在列表里逐条清理岗位）');
   st.sources = st.sources.filter((s) => s.id !== id);
   const before = st.jobs.length;
   st.jobs = st.jobs.filter((j) => j.src !== id);
@@ -507,6 +513,43 @@ export function setJobMark(id, patch) {
   st.marks[id] = next;
   saveJobState(st);
   return next;
+}
+
+// 识别收录入库:岗位进「手动收录」源(src='manual'),同 id(公司|岗位|链接)重复收录=整行更新
+export function saveCapturedJob({ company, position, city, link }) {
+  const st = readJobState();
+  company = clean(company);
+  position = clean(position);
+  if (!company || !position) throw new Error('公司与岗位不能为空');
+  const url = normalizeUrl(link);
+  const id = stableJobId(company, position, url);
+  const prev = st.jobs.find((j) => j.id === id);
+  const job = {
+    id, company, position, link: url,
+    city: clean(city), deadline: '', deadlineRaw: '',
+    note: prev?.note || '', referralCode: prev?.referralCode || '', referrer: prev?.referrer || '', batch: prev?.batch || '',
+    addedAt: prev?.addedAt || nowIso(),
+    updatedAt: nowIso(),
+    src: 'manual',
+  };
+  st.jobs = prev ? st.jobs.map((j) => (j.id === id ? job : j)) : [...st.jobs, job];
+  const manual = st.sources.find((s) => s.id === 'manual');
+  if (manual) manual.lastSync = { at: nowIso(), count: st.jobs.filter((j) => j.src === 'manual').length, error: null };
+  saveJobState(st);
+  return { id, updated: !!prev };
+}
+
+// ===== 登录通道:docsqq profile 扫码一次,全部文档源读取升级为「该账号可见的一切」 =====
+// (公开表匿名可读;仅自己/仅成员可见的表需要这一步。登录态落持久 profile,关窗即存)
+export async function openDocsLogin(log = () => {}) {
+  const { launch: launchBrowser } = await import('./session.mjs');
+  const ctx = await launchBrowser('docsqq', { headless: false });
+  const page = ctx.pages()[0] || (await ctx.newPage());
+  await page.goto(DOCS_ORIGIN, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
+  log('已打开腾讯文档：请扫码/登录后关闭该窗口——登录态会保存，之后同步/试读会带上它');
+  return {
+    async close() { await ctx.close().catch(() => {}); },
+  };
 }
 
 // ===== 岗位包(对外分发的岗位快照;只含维护者主文档源,不含文档地址与本地标记) =====

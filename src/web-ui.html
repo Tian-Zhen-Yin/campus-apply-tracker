@@ -485,7 +485,7 @@
 <div id="jobSourceOverlay" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:60;align-items:center;justify-content:center">
   <div style="background:#fff;border-radius:12px;padding:18px 20px;width:620px;max-width:94vw;max-height:90vh;overflow:auto">
     <strong>添加岗位文档源</strong>
-    <p class="dim" style="margin:6px 0 0">支持任何「有链接即可查看」的腾讯智能表格（学校群 / 朋友分享的内推表等）。只读同步、手动触发；表头需能认出「公司」和「岗位」列。添加后随时可移除，不影响其他来源与本机标记。</p>
+    <p class="dim" style="margin:6px 0 0">支持你能在腾讯文档里打开的智能表格（学校群 / 朋友分享的内推表等）。公开表直接读；「仅自己/仅成员可见」的表先 <a href="javascript:void(0)" onclick="jobsLogin()" style="color:var(--primary);font-weight:700">登录腾讯文档</a> 一次。只读同步、手动触发；表头需能认出「公司/岗位」或「公告标题」列。</p>
     <label class="f">智能表格链接（浏览器地址栏整段复制）</label>
     <input type="text" id="jsUrl" placeholder="https://docs.qq.com/smartsheet/…?tab=…&viewId=…">
     <div class="row" style="margin-top:10px">
@@ -497,6 +497,20 @@
       <button class="act pri" onclick="confirmJobSource()">确认添加并同步</button>
       <span class="dim" style="align-self:center">确认后立即同步一次（约 10-40 秒，取决于表大小）</span>
     </div>
+  </div>
+</div>
+
+<div id="jobCaptureOverlay" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:60;align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:12px;padding:18px 20px;width:560px;max-width:94vw;max-height:90vh;overflow:auto">
+    <strong>🔍 识别投递网址</strong>
+    <p class="dim" style="margin:6px 0 0">粘贴岗位详情页链接（不是列表页），自动识别公司/岗位/城市——确认后收录进「手动收录」岗位源。识别在本机无头浏览器中进行，只读不改。</p>
+    <label class="f">岗位详情页链接</label>
+    <input type="text" id="jcUrl" placeholder="https://jobs.xxx.com/campus/position/…">
+    <div class="row" style="margin-top:10px">
+      <button class="act pri" id="jcGoBtn" onclick="captureJobUrl()">识 别</button>
+      <button class="act" onclick="closeJobCaptureOverlay()">取消</button>
+    </div>
+    <div id="jcResult" style="margin-top:12px"></div>
   </div>
 </div>
 
@@ -1093,17 +1107,59 @@ async function jobMark(i, k) {
 // ===== 岗位源管理:pack(原厂,内置)+ 用户自助文档源(试读预览确认后添加,可移除) =====
 function renderJobSources() {
   const srcs = (S.jobs || {}).sources || [];
+  const cnt = (id) => ((S.jobs || {}).jobs || []).filter((j) => j.src === id).length;
   const last = (s) => s.lastSync && !s.lastSync.error ? `上次 ${cn(s.lastSync.at)}` : (s.lastSync?.error ? `<span style="color:#b94747">失败</span>` : '未同步');
   $('jobSources').innerHTML = srcs.map((s) => s.type === 'pack'
     ? `<span class="chip" title="原厂策展岗位包,随版本更新;离线回落内置包">📦 原厂岗位包 · ${last(s)} <button class="act" style="margin-left:4px;padding:0 6px;font-size:11px" onclick="jobsSync('${s.id}')">↻</button></span>`
-    : `<span class="chip" title="${esc(s.url)}">📄 ${esc(s.label || '文档源')} · ${last(s)} <button class="act" style="margin-left:4px;padding:0 6px;font-size:11px" title="同步此来源" onclick="jobsSync('${s.id}')">↻</button> <button class="act warn" style="padding:0 6px;font-size:11px" title="移除此来源(其岗位一并移除,标记保留)" onclick="removeJobSource('${s.id}','${esc(s.label || '')}')">✕</button></span>`
-  ).join('') + `<button class="act" style="min-height:26px;padding:0 10px;font-size:12px" onclick="openJobSourceOverlay()">＋ 添加文档源</button>`;
+    : s.type === 'manual'
+      ? `<span class="chip" title="识别投递网址 / 人工录入的岗位落点,只存本机">✏️ 手动收录 · ${cnt(s.id)} 条</span>`
+      : `<span class="chip" title="${esc(s.url)}">📄 ${esc(s.label || '文档源')} · ${last(s)} <button class="act" style="margin-left:4px;padding:0 6px;font-size:11px" title="同步此来源" onclick="jobsSync('${s.id}')">↻</button> <button class="act warn" style="padding:0 6px;font-size:11px" title="移除此来源(其岗位一并移除,标记保留)" onclick="removeJobSource('${s.id}','${esc(s.label || '')}')">✕</button></span>`
+  ).join('') + `<button class="act" style="min-height:26px;padding:0 10px;font-size:12px" onclick="openJobSourceOverlay()">＋ 添加文档源</button> <button class="act" style="min-height:26px;padding:0 10px;font-size:12px" onclick="openJobCaptureOverlay()">🔍 识别网址</button>`;
 }
 function openJobSourceOverlay() {
   $('jsUrl').value = ''; $('jsPreview').innerHTML = ''; $('jsConfirmRow').style.display = 'none';
   document.getElementById('jobSourceOverlay').style.display = 'flex';
 }
 function closeJobSourceOverlay() { document.getElementById('jobSourceOverlay').style.display = 'none'; }
+// ===== 识别投递网址(移植自一键收录插件的识别能力,控制台原生无头实现) =====
+function openJobCaptureOverlay() {
+  $('jcUrl').value = ''; $('jcResult').innerHTML = '';
+  document.getElementById('jobCaptureOverlay').style.display = 'flex';
+}
+function closeJobCaptureOverlay() { document.getElementById('jobCaptureOverlay').style.display = 'none'; }
+async function captureJobUrl() {
+  const url = $('jcUrl').value.trim();
+  if (!url) { toast('先粘贴岗位详情页链接'); return; }
+  $('jcGoBtn').disabled = true;
+  $('jcResult').innerHTML = '<div class="dim">⏳ 正在打开页面并识别（约 5-15 秒）……</div>';
+  try {
+    const r = await api('/api/jobs/capture', { url });
+    if (!r.ok) {
+      $('jcResult').innerHTML = `<div class="banner err" style="margin:0">识别失败：${esc(r.error)}</div>`;
+      return;
+    }
+    $('jcResult').innerHTML = `
+      <label class="f">公司</label><input type="text" id="jcCompany" value="${esc(r.company)}">
+      <label class="f">岗位</label><input type="text" id="jcPosition" value="${esc(r.position)}">
+      <label class="f">城市（可留空）</label><input type="text" id="jcCity" value="${esc(r.city || '')}">
+      <label class="f">链接</label><input type="text" id="jcLink" value="${esc(r.url)}">
+      <p class="dim" style="margin:6px 0 0">识别结果可手动修正——确认无误后收录。</p>
+      <div class="row" style="margin-top:10px"><button class="act pri" onclick="confirmCapture()">确认收录</button></div>`;
+  } catch (e) { $('jcResult').innerHTML = `<div class="banner err" style="margin:0">${esc(e.message)}</div>`; }
+  finally { $('jcGoBtn').disabled = false; }
+}
+async function confirmCapture() {
+  try {
+    const r = await api('/api/jobs/capture/save', { company: $('jcCompany').value.trim(), position: $('jcPosition').value.trim(), city: $('jcCity').value.trim(), link: $('jcLink').value.trim() });
+    closeJobCaptureOverlay();
+    toast(r.updated ? '已更新手动收录中的同内容岗位' : '已收录到「手动收录」岗位源');
+  } catch (e) { toast(e.message); }
+  await refresh();
+}
+async function jobsLogin() {
+  try { await api('/api/jobs/login', {}); toast('已打开腾讯文档窗口——扫码登录后关闭它，回来重试即可'); }
+  catch (e) { toast(e.message); }
+}
 async function previewJobSource() {
   const url = $('jsUrl').value.trim();
   if (!url) { toast('先粘贴智能表格链接'); return; }
@@ -1112,7 +1168,8 @@ async function previewJobSource() {
   try {
     const r = await api('/api/jobs/sources/preview', { url });
     if (!r.ok) {
-      $('jsPreview').innerHTML = `<div class="banner err" style="margin:0">读取失败：${esc(r.error)}</div>`;
+      const needLogin = /未登录|无查看权限/.test(r.error || '');
+      $('jsPreview').innerHTML = `<div class="banner err" style="margin:0">读取失败：${esc(r.error)}${needLogin ? ` <button class="act pri" style="min-height:28px" onclick="jobsLogin()">登录腾讯文档</button>` : ''}</div>`;
       return;
     }
     $('jsPreview').innerHTML = `
