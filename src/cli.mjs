@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { SITES, SITE_KEYS } from './config.mjs';
 import { HOME, ensureDirs, profileDir, capturedFile, metaFile } from './paths.mjs';
-import { pad, readJson } from './util.mjs';
+import { pad, readJson, table } from './util.mjs';
 import { login } from './login.mjs';
 import { capture } from './capture.mjs';
 import { status } from './status.mjs';
@@ -41,6 +41,10 @@ function usage() {
   feishu-test          测试飞书群机器人推送（配置见 ~/.ats-status/feishu.json）
   import <file|-|>     导入手工投递列表（JSON 数组或 CSV：公司,岗位,状态,投递时间,链接；空=读管道）
   apps                 查看手工投递列表
+  jobs                 查看岗位库（普通用户读内置岗位包；维护者读自己的腾讯智能表格）
+  jobs sync            同步岗位库（--headed 显示浏览器，仅维护者文档模式有意义）
+  jobs pack [--full]   导出岗位包 jobs-pack.json 随仓库分发（维护者用；默认剥离内推码/联系人，--full 保留）
+  jobs publish         发布流水线：同步文档→防呆检查→打包→git 提交推送（维护者用；定时触发建议走控制台）
   keepalive            心跳保活（--once 单轮，--interval N 分钟）
   doctor <site>        查看站点会话与接口详情
   forget <site>        清除该站点会话与已保存接口`);
@@ -104,6 +108,46 @@ ensureDirs();
     case 'apps':
       await listApps();
       break;
+    case 'jobs': {
+      const { readJobState, syncJobs, writeJobPack } = await import('./jobs.mjs');
+      const sub = args[0];
+      if (sub === 'sync') {
+        const r = await syncJobs({ log: console.log, headed: opt('--headed') });
+        if (r.needLogin) console.log('读取失败：文档需保持「有链接即可查看」的公开权限');
+        else if (!r.ok) console.log(`同步失败：${r.error}`);
+        break;
+      }
+      if (sub === 'pack') {
+        const r = writeJobPack({ full: opt('--full'), out: optVal('--out') });
+        console.log(`岗位包已导出 → ${r.target}（${r.count} 条${r.stripped ? `，已剥离 ${r.stripped} 条的内推码/联系人${opt('--full') ? '' : '（--full 可保留）'}` : ''}）`);
+        break;
+      }
+      if (sub === 'publish') {
+        const { publishJobs } = await import('./jobs.mjs');
+        const r = await publishJobs({ log: console.log, push: !opt('--no-push') });
+        if (r.skipped) console.log(`⚠️ 未发布：${r.skipped}`);
+        else if (r.reason === 'no-change') console.log('岗位包无变化，未提交');
+        else console.log(r.pushed ? `已发布：${r.count} 条已提交并推送` : `已提交本地（${r.count} 条）${r.noPush ? '（--no-push）' : `，推送失败：${r.pushError}——请手动 git push`}`);
+        break;
+      }
+      const st = readJobState();
+      const ls = st.lastSync;
+      const { recentJobs } = await import('./jobs.mjs');
+      console.log(`岗位源: ${st.source === 'doc' ? `我的文档 ${st.docUrl}` : `岗位包${st.packUrl ? `（远程 ${st.packUrl}）` : '（内置 jobs-pack.json）'}`}`);
+      console.log(`同步: ${ls ? `${ls.error ? '失败：' + ls.error : '共 ' + st.jobs.length + ' 条'} · ${new Date(ls.at).toLocaleString('zh-CN')}` : '从未'}`);
+      const shown = recentJobs(st);
+      if (shown.length) {
+        if (st.jobs.length > shown.length) console.log(`（展示最近更新的 ${shown.length} 条，库中共 ${st.jobs.length} 条）`);
+        console.log(table(shown.map((j) => ({ ...j, mark: [st.marks[j.id]?.applied && '已投', st.marks[j.id]?.star && '★', st.marks[j.id]?.skip && '不投'].filter(Boolean).join(',') || '' })), [
+          { key: 'company', title: '公司', width: 16 },
+          { key: 'position', title: '岗位', width: 36 },
+          { key: 'city', title: '城市', width: 10 },
+          { key: 'deadline', title: '截止', width: 12 },
+          { key: 'mark', title: '标记', width: 8 },
+        ]));
+      }
+      break;
+    }
     case 'keepalive':
       await keepalive({ once: opt('--once'), ignoreQuiet: opt('--ignore-quiet'), interval: parseInt(optVal('--interval'), 10) || undefined });
       break;

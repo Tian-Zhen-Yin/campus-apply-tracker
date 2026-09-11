@@ -11,6 +11,7 @@ export const historyFile = (site) => path.join(HOME, 'out', `${site}.history.jso
 export const rawFile = (site) => path.join(HOME, 'out', `${site}.raw.json`);
 export const appsFile = () => path.join(HOME, 'apps.json');
 export const correctionsFile = () => path.join(HOME, 'corrections.json');
+export const jobsFile = () => path.join(HOME, 'jobs.json');
 export const dashboardFile = () => path.join(HOME, 'out', 'dashboard.html');
 export const reportStateFile = () => path.join(HOME, 'out', '_report.last.json');
 

@@ -19,6 +19,7 @@ import { startRecording, attachRecorder } from './capture.mjs';
 import { extractApplications } from './extract.mjs';
 import { chromium } from 'playwright';
 import { writeTrackerSync } from './trackerSync.mjs';
+import { readJobState, recentJobs, syncJobs, setJobMark, publishJobs } from './jobs.mjs';
 import { notify } from './notify.mjs';
 import { applyToRecords, setCorrection, isValidStatus, readArchived, setArchived } from './corrections.mjs';
 
@@ -382,6 +383,11 @@ function buildState() {
       };
     }),
     apps: readApps(),
+    jobs: (() => {
+      // 只携带最近更新的 250 条（展示窗口）：页面轻、筛选分页照常；全量数据留在 jobs.json 供岗位包发布
+      const st = readJobState();
+      return { ...st, jobs: recentJobs(st), total: st.jobs.length };
+    })(),
     feishu: {
       configured: !!feishu,
       webhookMasked: feishu ? feishu.webhook.replace(/^(https:\/\/[^/]+\/).*/i, '$1…') : '',
@@ -393,11 +399,13 @@ function buildState() {
       ? {
           console: winTaskExists('CampusConsole-Autostart'),
           schedule: ['CampusSchedule-0930', 'CampusSchedule-1430', 'CampusSchedule-2000'].every((t) => winTaskExists(t)),
+          jobpack: ['CampusJobPack-1200', 'CampusJobPack-2130'].every((t) => winTaskExists(t)),
         }
       : {
-          // 与实际安装的 plist 同名：console=服务常驻（KeepAlive），schedule=查询+邮件定时
+          // 与实际安装的 plist 同名：console=服务常驻（KeepAlive），schedule=查询+邮件定时，jobpack=岗位包定时发布
           console: fs.existsSync(path.join(laDir, 'com.ats-status.console.plist')),
           schedule: fs.existsSync(path.join(laDir, 'com.ats-status.schedule.plist')),
+          jobpack: fs.existsSync(path.join(laDir, 'com.ats-status.jobpack.plist')),
         },
     busy: busy ? { kind: busy.kind, logs: busy.logs, done: busy.done, error: busy.error } : null,
     sessions: [...sessions.values()].map((s) => ({ id: s.id, site: s.site, kind: s.kind, label: s.label })),
@@ -435,6 +443,46 @@ function readBody(req) {
 
 function winTaskExists(name) {
   try { execSync(`schtasks /Query /TN "${name}" >nul 2>&1`, { shell: true }); return true; } catch { return false; }
+}
+
+// ===== 岗位包定时发布（维护者）：每日 12:00 / 21:30 curl 本地发布端点 =====
+// 与既有定时任务同一模式：定时器只打 API（服务常驻保活、runJob 守卫防浏览器并发），不直接跑 node。
+const JOBPACK_TIMES = ['12:00', '21:30'];
+const jobpackPlist = () => path.join(os.homedir(), 'Library', 'LaunchAgents', 'com.ats-status.jobpack.plist');
+async function installJobpackSchedule() {
+  if (process.platform === 'win32') {
+    for (const t of JOBPACK_TIMES) {
+      execSync(`schtasks /Create /F /TN CampusJobPack-${t.replace(':', '')} /SC DAILY /ST ${t} /TR "curl.exe -s -X POST http://127.0.0.1:7788/api/jobs/publish --max-time 900"`, { shell: true });
+    }
+    return;
+  }
+  const plist = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.ats-status.jobpack</string>
+  <key>ProgramArguments</key><array>
+    <string>/usr/bin/curl</string><string>-s</string><string>-X</string><string>POST</string>
+    <string>-H</string><string>content-type: application/json</string>
+    <string>-d</string><string>{}</string>
+    <string>--max-time</string><string>900</string>
+    <string>http://127.0.0.1:7788/api/jobs/publish</string>
+  </array>
+  <key>StartCalendarInterval</key><array>
+    <dict><key>Hour</key><integer>12</integer><key>Minute</key><integer>0</integer></dict>
+    <dict><key>Hour</key><integer>21</integer><key>Minute</key><integer>30</integer></dict>
+  </array>
+</dict></plist>`;
+  fs.writeFileSync(jobpackPlist(), plist);
+  try { execSync(`launchctl unload "${jobpackPlist()}"`, { stdio: 'ignore' }); } catch { /* 未加载过属正常 */ }
+  execSync(`launchctl load "${jobpackPlist()}"`);
+}
+async function removeJobpackSchedule() {
+  if (process.platform === 'win32') {
+    for (const t of JOBPACK_TIMES) execSync(`schtasks /Delete /F /TN CampusJobPack-${t.replace(':', '')}`, { shell: true });
+    return;
+  }
+  try { execSync(`launchctl unload "${jobpackPlist()}"`, { stdio: 'ignore' }); } catch { /* ignore */ }
+  fs.rmSync(jobpackPlist(), { force: true });
 }
 
 async function route(req, res, url) {
@@ -700,6 +748,47 @@ async function route(req, res, url) {
       if (r.empty) return json(res, 400, { error: '没解析到记录（JSON 数组，或 CSV：公司,岗位,状态,投递时间,链接）' });
       log(`📥 手工列表导入：新增 ${r.added}，共 ${r.total}`);
       return json(res, 200, r);
+    }
+    case '/api/jobs/sync': {
+      // 同步要开浏览器，与查状态/抓包等浏览器任务互斥（runJob 内含 busy/会话守卫）
+      const ok = runJob('jobs:sync', async () => {
+        const r = await syncJobs({ log: console.log });
+        if (r.needLogin) log('⚠️ 腾讯文档读取失败（未登录或无权限）——文档需保持「链接可查看」');
+      });
+      if (!ok.started) return json(res, 409, { error: ok.error === 'session-open' ? '有浏览器会话未完成，先完成或放弃再操作' : `${busy?.kind || '有任务'} 进行中` });
+      return json(res, 200, { ok: true });
+    }
+    case '/api/jobs/mark': {
+      const id = String(body.id || '');
+      if (!id) return json(res, 400, { error: '需要岗位 id' });
+      try {
+        const marks = setJobMark(id, { applied: body.applied, skip: body.skip, star: body.star });
+        return json(res, 200, { ok: true, marks });
+      } catch (e) { return json(res, 400, { error: String(e?.message || e) }); }
+    }
+    case '/api/jobs/publish': {
+      // 发布流水线：文档同步 → 防呆 → 打包 → 提交推送；结果走系统通知（定时触发时人不在控制台前）
+      const ok = runJob('jobs:publish', async () => {
+        try {
+          const r = await publishJobs({ log: console.log });
+          if (r.skipped) { log(`⚠️ 岗位包未发布：${r.skipped}`); await notify('岗位包发布已拦截', r.skipped); }
+          else if (r.published && !r.pushed) await notify('岗位包已提交、推送失败', `推送失败：${r.pushError}——请手动 git push`);
+          else if (r.published) await notify('岗位包已发布', `共 ${r.count} 条，已提交并推送`);
+        } catch (e) {
+          log(`❌ 岗位包发布失败：${e?.message || e}`);
+          await notify('岗位包发布失败', String(e?.message || e).slice(0, 120));
+        }
+      });
+      if (!ok.started) return json(res, 409, { error: ok.error === 'session-open' ? '有浏览器会话未完成，先完成或放弃再操作' : `${busy?.kind || '有任务'} 进行中` });
+      return json(res, 200, { ok: true });
+    }
+    case '/api/jobs/schedule': {
+      try {
+        if (body.remove) { await removeJobpackSchedule(); log('🗑 岗位包定时发布已卸载'); return json(res, 200, { ok: true, installed: false }); }
+        await installJobpackSchedule();
+        log('🟢 岗位包定时发布已安装（每日 12:00 / 21:30 自动同步打包推送）');
+        return json(res, 200, { ok: true, installed: true });
+      } catch (e) { return json(res, 400, { error: String(e?.message || e) }); }
     }
     case '/api/feishu': {
       const webhook = String(body.webhook || '').trim();

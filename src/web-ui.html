@@ -65,7 +65,7 @@
   .sidebar-footer strong { display: block; margin-bottom: 2px; font-size: 13px; }
 
   .shell { min-width: 0; width: 100%; max-width: 1240px; margin: 0 auto; padding: 30px 28px 140px; }
-  #secOverview, #secSites, #secRecords, #secMail, #secImport, #secSettings { scroll-margin-top: 16px; }
+  #secOverview, #secSites, #secRecords, #secMail, #secJobs, #secImport, #secSettings { scroll-margin-top: 16px; }
 
   .topbar { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 24px; }
   .page-kicker { margin-bottom: 2px; color: var(--primary); font-size: 12px; font-weight: 760; letter-spacing: .08em; }
@@ -95,6 +95,9 @@
   .panel-link { color: var(--primary); text-decoration: none; font-size: 12.5px; font-weight: 700; white-space: nowrap; }
   .panel-link:hover { text-decoration: underline; text-underline-offset: 3px; }
   .card { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 16px 18px; box-shadow: 0 3px 12px rgba(33, 45, 75, .04); }
+  /* 设置卡片统一的标题行：大标题 + 状态说明（与其他 panel-head 同层级感） */
+  .card-hd { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin: 0 0 8px; }
+  .card-hd strong { font-size: 15px; letter-spacing: -.01em; }
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 14px; }
   .settings-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 14px; }
 
@@ -185,6 +188,9 @@
   tbody tr:first-child td { border-top: 0; }
 
   .dim { color: var(--muted); font-size: 12.5px; }
+  /* 岗位库列表：单行截断（全文悬浮提示），行高压平便于扫读 */
+  .ellip { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .job-note { font-size: 12px; color: var(--muted); margin-top: 2px; }
   .cand { background: var(--surface-soft); border: 1px solid var(--line); border-radius: 12px; padding: 11px 13px; margin-top: 9px; font-size: 13px; }
   .cand label { display: flex; gap: 8px; align-items: flex-start; padding: 5px 0; cursor: pointer; }
   .cand .u { font-family: ui-monospace, Menlo, monospace; font-size: 12px; word-break: break-all; }
@@ -276,10 +282,11 @@
     </div>
     <nav class="sidebar-nav">
       <a class="nav-item" href="#secOverview"><span class="nav-icon">⌂</span><span>总览</span></a>
-      <a class="nav-item" href="#secSites"><span class="nav-icon">◎</span><span>官网引擎</span></a>
-      <a class="nav-item" href="#secMail"><span class="nav-icon">✉</span><span>邮件与推送</span></a>
-      <a class="nav-item nav-tracker" href="/" title="投递记录、岗位库、截图识别、状态同步——日常在这里"><span class="nav-icon">📋</span><span>投递台账</span><span class="nav-ext">↗</span></a>
-      <a class="nav-item" href="/console" title="官方状态明细、诊断面板、数据位置"><span class="nav-icon">▤</span><span>高级与诊断</span></a>
+      <a class="nav-item" href="#secRecords"><span class="nav-icon">☰</span><span>投递总览</span></a>
+      <a class="nav-item" href="#secJobs"><span class="nav-icon">⌕</span><span>岗位库</span></a>
+      <a class="nav-item" href="#secSites"><span class="nav-icon">◎</span><span>站点接入</span></a>
+      <a class="nav-item" href="#secMail"><span class="nav-icon">✉</span><span>邮件通知</span></a>
+      <a class="nav-item" href="#secSettings"><span class="nav-icon">⚙</span><span>设置与帮手</span></a>
       <a class="nav-item" href="/guide" target="_blank"><span class="nav-icon">□</span><span>使用指南</span><span class="nav-ext">↗</span></a>
     </nav>
     <div class="sidebar-footer"><strong>数据保存在本机</strong>会话与查询结果只存 ~/.ats-status，不联网上传</div>
@@ -317,19 +324,48 @@
       <div class="stage-grid" id="statusGrid"></div>
     </section>
 
+    <section class="panel" id="secRecords" aria-label="投递明细">
+      <div class="panel-head">
+        <div><h2 class="panel-title">投递总览</h2><div class="panel-caption"><span id="ovCount"></span></div></div>
+      </div>
+      <div class="panel-body" style="padding-bottom:2px">
+        <div class="row" style="align-items:center">
+          <select id="ovCompany" style="width:auto;max-width:230px" onchange="ovPage=1;renderOverview()" aria-label="按公司筛选"></select>
+          <select id="ovStatus" style="width:auto" onchange="ovPage=1;renderOverview()" aria-label="按状态筛选"></select>
+          <select id="ovArch" style="width:auto" onchange="ovPage=1;renderOverview()" aria-label="按归档筛选">
+            <option value="">未归档</option>
+            <option value="only">已归档</option>
+            <option value="all">全部（含归档）</option>
+          </select>
+          <span class="dim" id="ovFiltered" style="margin-left:auto"></span>
+        </div>
+      </div>
+      <div class="table-scroll" id="overview"></div>
+    </section>
+
+    <section class="panel" id="secJobs" aria-label="岗位库">
+      <div class="panel-head">
+        <div><h2 class="panel-title">岗位库</h2><div class="panel-caption" id="jobSyncCap">岗位表由你在腾讯文档里维护，控制台只读同步；「已投/不投/关注」标记只存本机，重同步不丢</div></div>
+        <div class="row">
+          <button class="btn" id="jobPublishBtn" style="display:none" onclick="jobsPublish()" title="维护者：同步文档→打包→提交并推送仓库（发布给所有用户）">🚀 发布岗位包</button>
+          <button class="btn btn-primary" onclick="jobsSync()" title="从你的腾讯智能表格拉取最新岗位"><span class="icon">↻</span>同步岗位库</button>
+        </div>
+      </div>
+      <div class="panel-body">
+        <div class="chips" id="jobStats" style="margin:0 0 10px"></div>
+        <div class="row" style="align-items:center">
+          <div class="chips" id="jobFilters"></div>
+          <input type="text" id="jobSearch" placeholder="搜索公司 / 岗位 / 城市" style="max-width:230px;margin-left:auto" oninput="jobPage=1;renderJobList()">
+        </div>
+        <div class="table-scroll" id="jobList" style="margin-top:10px"></div>
+      </div>
+    </section>
+
     <section class="panel" id="secSites" aria-label="站点接入">
       <div class="panel-head">
         <div><h2 class="panel-title">站点接入</h2><div class="panel-caption">登录 = 扫码/短信一次；抓包 = 打开「我的投递」页让工具认接口</div></div>
       </div>
       <div class="panel-body grid" id="sites"></div>
-    </section>
-
-    <section class="panel" id="secRecords" aria-label="投递明细">
-      <div class="panel-head">
-        <div><h2 class="panel-title">投递总览</h2><div class="panel-caption"><span id="ovCount"></span></div></div>
-        <a class="panel-link" href="/dashboard" target="_blank">完整面板（dashboard.html）↗</a>
-      </div>
-      <div class="table-scroll" id="overview"></div>
     </section>
 
     <section class="panel" id="secMail" aria-label="邮件通知">
@@ -343,12 +379,14 @@
       <div class="table-scroll" id="mailBox"></div>
     </section>
 
-    
-
-    <section id="secSettings" aria-label="设置与帮手">
+    <section class="panel" id="secSettings" aria-label="设置与帮手">
+      <div class="panel-head">
+        <div><h2 class="panel-title">设置与帮手</h2><div class="panel-caption">邮箱、推送、定时任务——配好一次，之后不用管</div></div>
+      </div>
+      <div class="panel-body">
       <div class="settings-grid">
         <div class="card" id="mailCard">
-          <strong>邮箱监控</strong> <span class="dim" id="mailState"></span>
+          <div class="card-hd"><strong>邮箱监控</strong><span class="dim" id="mailState"></span></div>
           <div class="chips" id="mailAccounts" style="margin:8px 0"></div>
           <label class="f">邮箱服务商</label>
           <select id="mailProvider" style="width:100%;margin-bottom:8px">
@@ -368,7 +406,7 @@
           <p class="dim" style="margin-bottom:0">开启方法：邮箱网页版设置里开启 IMAP 服务并生成授权码（163：设置→POP3/SMTP/IMAP；QQ：设置→账户）。可添加多个邮箱，每轮查询会全部拉取；笔试/面试邮件推送到飞书，邮件只存本机。</p>
         </div>
         <div class="card">
-          <strong>飞书推送</strong> <span class="dim" id="fState"></span>
+          <div class="card-hd"><strong>飞书推送</strong><span class="dim" id="fState"></span></div>
           <label class="f">群机器人 webhook</label>
           <input type="text" id="fHook" placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/xxxx">
           <label class="f">签名密钥（没开签名就留空）</label>
@@ -380,19 +418,24 @@
           <p class="dim" style="margin-bottom:0">有状态变化时往群里推卡片。建机器人：飞书群 → 设置 → 群机器人 → 自定义机器人。webhook 别外发。</p>
         </div>
         <div class="card">
-          <strong>定时任务</strong>
+          <div class="card-hd"><strong>定时任务</strong></div>
           <div class="chips" style="margin:10px 0">
             <span class="chip" id="laKa">服务常驻：检测中…</span>
             <span class="chip" id="laRp">查询+邮件定时：检测中…</span>
+            <span class="chip" id="laJp">岗位包定时发布：检测中…</span>
           </div>
-          <div class="row"><button class="act" onclick="act('/api/keepalive',{})">手动保活一轮</button></div>
-          <p class="dim" style="margin-bottom:0">定时任务已随控制台自动安装（上方显示「已安装」即在工作日 9:30 / 14:30 / 20:00 自动查询并检查邮箱）。装好后本页不用开着，定时任务自己跑；本页只是遥控器。</p>
+          <div class="row">
+            <button class="act" onclick="act('/api/keepalive',{})">手动保活一轮</button>
+            <button class="act" id="laJpBtn" onclick="toggleJobpackSchedule()">安装岗位包定时发布</button>
+          </div>
+          <p class="dim" style="margin-bottom:0">查询+邮件定时随控制台自动安装（工作日 9:30 / 14:30 / 20:00）。「岗位包定时发布」为维护者可选：每日 12:00 / 21:30 自动同步文档→打包→提交并推送仓库，用户点同步即拿最新；岗位数异常时自动拦截并弹通知。装好后本页不用开着。</p>
         </div>
         <div class="card">
-          <strong>数据位置</strong>
+          <div class="card-hd"><strong>数据位置</strong></div>
           <p class="dim" id="homeTxt" style="margin-bottom:8px"></p>
           <p class="dim" style="margin-bottom:0">每次查状态成功后，自动把官方状态汇总为状态包 <code>out/tracker-sync.json</code>，供「校招投递管理」的状态同步面板读取。</p>
         </div>
+      </div>
       </div>
     </section>
   </main>
@@ -484,6 +527,7 @@ function render() {
   renderSites();
   renderOverview();
   renderApps();
+  renderJobs();
   renderMail();
   renderSettings();
   renderLogs();
@@ -711,19 +755,25 @@ function renderDist(rows) {
     </div>`).join('');
 }
 
-let ovRows = [];             // 总览平铺行（含已归档行；按钮按索引回查，避免岗位名进 onclick 转义）
-let ovShowArchived = false;  // 总览是否展开已归档行（取消归档的唯一入口在这里）
+let ovRows = [];             // 当前展示的总览行（已按筛选与排序整理；按钮按索引回查，避免岗位名进 onclick 转义）
+let ovArch = '';             // 归档筛选：'' 未归档 | 'only' 已归档 | 'all' 全部（含归档）
+let ovPage = 1;
+const OV_PAGE_SIZE = 20;
+const OV_FINAL = ['OFFER', 'REJECTED', 'CLOSED', 'TALENT']; // 终态（与统计卡「进行中」口径一致）
+const ovCode = (r) => normalize(r.statusRaw);
+const ovIsFinal = (r) => OV_FINAL.includes(ovCode(r));
+const ovTime = (at) => { const d = new Date(at); const p2 = (n) => String(n).padStart(2, '0'); return `${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}`; };
 function renderOverview() {
-  ovRows = [];
+  const all = [];
   let nArchived = 0;
   for (const s of S.sites) {
     const at = s.last ? s.last.at : null;
     for (const r of (s.last && s.last.records || [])) {
       if (r.archived) nArchived += 1;
-      ovRows.push({ company: s.label, key: s.key, ...r, tk: `site|${s.key}|${r.job}|${r.dept || ''}`, src: `${s.label}（自动）`, at });
+      all.push({ company: s.label, key: s.key, ...r, tk: `site|${s.key}|${r.job}|${r.dept || ''}`, src: `${s.label}（自动）`, at });
     }
   }
-  for (const a of S.apps) ovRows.push({ company: a.company, job: a.job, tk: `apps|${a.company}|${a.job}|`, statusRaw: a.statusRaw, appliedAt: a.appliedAt, src: '手工', at: null });
+  for (const a of S.apps) all.push({ company: a.company, job: a.job, tk: `apps|${a.company}|${a.job}|`, statusRaw: a.statusRaw, appliedAt: a.appliedAt, src: '手工', at: null });
   // 邮件挂载：已关联到具体记录的邮件按目标分组，挂在总览行下（未关联的在邮件面板处理）
   const mailByTarget = new Map();
   for (const m of ((S.mail || {}).recent || [])) {
@@ -732,26 +782,51 @@ function renderOverview() {
     if (!mailByTarget.has(k)) mailByTarget.set(k, []);
     mailByTarget.get(k).push(m);
   }
-  const active = ovRows.filter((r) => !r.archived); // 已归档：统计不计
-  $('ovCount').innerHTML = active.length
-    ? `共 ${active.length} 条${nArchived ? ` · <a href="javascript:void(0)" onclick="ovToggleArchived()">${ovShowArchived ? '收起' : '显示'}已归档 ${nArchived} 条</a>` : ''}`
-    : (nArchived ? `全部 ${nArchived} 条均已归档 · <a href="javascript:void(0)" onclick="ovToggleArchived()">显示已归档</a>` : '');
-  renderStatCards(active);
-  renderDist(active);
-  const shown = ovShowArchived ? ovRows : active;
-  if (!shown.length) { $('overview').innerHTML = '<div class="card empty"><div class="empty-icon">⌕</div>还没有数据 —— 先在上方完成登录/抓包，点「立即查询全部」。</div>'; return; }
-  $('overview').innerHTML = `<table><thead><tr><th>公司</th><th>岗位</th><th>地点</th><th>状态</th><th>原始状态</th><th>数据时间</th><th style="width:150px">操作</th></tr></thead><tbody>` +
-    shown.map((r) => {
+  const activeAll = all.filter((r) => !r.archived); // 已归档：统计不计
+  $('ovCount').textContent = activeAll.length
+    ? `共 ${activeAll.length} 条${nArchived ? ` · 已归档 ${nArchived} 条` : ''}`
+    : (nArchived ? `未归档 0 条 · 已归档 ${nArchived} 条` : '还没有投递记录');
+  renderStatCards(activeAll);
+  renderDist(activeAll);
+  // 筛选器：公司选项来自全量行（保留当前选择）；状态含「进行中/已结束」快捷项
+  const companySel = $('ovCompany'), statusSel = $('ovStatus');
+  const curCompany = companySel.value, curStatus = statusSel.value;
+  const companies = [...new Set(all.map((r) => r.company))].sort((a, b) => a.localeCompare(b, 'zh-CN'));
+  companySel.innerHTML = `<option value="">全部公司（${companies.length} 家）</option>` + companies.map((c) => `<option value="${esc(c)}"${c === curCompany ? ' selected' : ''}>${esc(c)}</option>`).join('');
+  statusSel.innerHTML = `<option value="">全部状态</option><option value="active"${curStatus === 'active' ? ' selected' : ''}>进行中（非结束）</option><option value="final"${curStatus === 'final' ? ' selected' : ''}>已结束 / 终态</option>`
+    + STATUS_META.map(([k, t]) => `<option value="${k}"${curStatus === k ? ' selected' : ''}>${t}</option>`).join('');
+  // 筛选 + 排序：非结束状态优先（稳定排序，组内保持原顺序）；「全部（含归档）」时归档行固定排在列表最末尾
+  const curArch = $('ovArch').value;
+  const pass = (r) => (!curCompany || r.company === curCompany)
+    && (curStatus === 'active' ? !ovIsFinal(r) : curStatus === 'final' ? ovIsFinal(r) : curStatus ? ovCode(r) === curStatus : true);
+  const pool = curArch === 'only' ? all.filter((r) => r.archived) : activeAll;
+  const live = pool.filter(pass).sort((a, b) => (ovIsFinal(a) ? 1 : 0) - (ovIsFinal(b) ? 1 : 0));
+  const archivedShown = curArch === 'all' ? all.filter((r) => r.archived && pass(r)) : [];
+  const rows = curArch === 'all' ? [...live, ...archivedShown] : live;
+  ovRows = rows;
+  const bits = [];
+  if (rows.length !== all.length) bits.push(`筛选出 ${rows.length} / ${all.length} 条`);
+  if (curArch === 'all' && archivedShown.length) bits.push(`归档 ${archivedShown.length} 条排在列表末尾`);
+  $('ovFiltered').textContent = bits.join(' · ');
+  if (!rows.length) {
+    $('overview').innerHTML = `<div class="card empty"><div class="empty-icon">⌕</div>${all.length ? '没有符合条件的投递——调整上方的公司/状态/归档筛选' : '还没有数据 —— 先在上方完成登录/抓包，点「立即查询全部」。'}</div>`;
+    return;
+  }
+  const maxPage = Math.max(1, Math.ceil(rows.length / OV_PAGE_SIZE));
+  if (ovPage > maxPage) ovPage = maxPage;
+  const pageRows = rows.slice((ovPage - 1) * OV_PAGE_SIZE, ovPage * OV_PAGE_SIZE);
+  $('overview').innerHTML = `<table><thead><tr><th style="width:92px">公司</th><th>岗位</th><th style="width:96px">地点</th><th style="width:96px">状态</th><th style="width:104px">数据时间</th><th style="width:150px">操作</th></tr></thead><tbody>` +
+    pageRows.map((r) => {
       const i = ovRows.indexOf(r);
       const acts = !r.key ? '<span class="dim">编辑 apps.json</span>'
         : r.archived ? `<button class="act" onclick="ovUnarchive(${i})">取消归档</button>`
         : `<span id="ov-act-${i}">${ovActs(i)}</span>`;
       const mails = mailByTarget.get(r.tk) || [];
-      return `<tr${r.archived ? ' style="opacity:.55"' : ''}><td data-label="公司">${esc(r.company)}</td><td data-label="岗位"><strong>${esc(r.job)}</strong>${r.dept ? `<span class="dim"> · ${esc(r.dept)}</span>` : ''}${r.corrected ? ' <span class="chip on" style="font-size:11px">✎已人工修正</span>' : ''}${r.archived ? ' <span class="chip off" style="font-size:11px">🗄已归档</span>' : ''}</td><td data-label="地点">${esc(r.city || '—')}</td><td data-label="状态">${badge(r.statusRaw)}</td><td data-label="原始状态" class="dim">${esc(r.statusRaw)}</td><td data-label="数据时间" class="dim">${r.at ? cn(r.at) : '—'}</td><td data-label="操作">${acts}</td></tr>`
-        + (mails.length ? `<tr><td colspan="7" style="padding:2px 14px 10px;font-size:12px;color:#475569">${mails.map((m) => `📬 ${mailBadge(m.kind)} ${esc(m.subject)}${mailTip(m)} <span class="dim">${cn(m.at)}</span>`).join('<br>')}</td></tr>` : '');
-    }).join('') + '</tbody></table>';
+      const full = r.job + (r.dept ? ` · ${r.dept}` : '');
+      return `<tr${r.archived ? ' style="opacity:.55"' : ''}><td data-label="公司" style="white-space:nowrap">${esc(r.company)}</td><td data-label="岗位"><span class="ellip" style="max-width:430px" title="${esc(full)}"><strong>${esc(r.job)}</strong>${r.dept ? `<span class="dim"> · ${esc(r.dept)}</span>` : ''}</span>${r.corrected ? ' <span class="chip on" style="font-size:11px">✎已人工修正</span>' : ''}${r.archived ? ' <span class="chip off" style="font-size:11px">🗄已归档</span>' : ''}</td><td data-label="地点">${esc(r.city || '—')}</td><td data-label="状态">${badge(r.statusRaw)}</td><td data-label="数据时间" class="dim">${r.at ? ovTime(r.at) : '—'}</td><td data-label="操作">${acts}</td></tr>`
+        + (mails.length ? `<tr><td colspan="6" style="padding:2px 14px 10px;font-size:12px;color:#475569">${mails.map((m) => `📬 ${mailBadge(m.kind)} ${esc(m.subject)}${mailTip(m)} <span class="dim">${cn(m.at)}</span>`).join('<br>')}</td></tr>` : '');
+    }).join('') + '</tbody></table>' + pagerHtml('ovPage', 'renderOverview', rows.length, ovPage, maxPage);
 }
-function ovToggleArchived() { ovShowArchived = !ovShowArchived; renderOverview(); }
 const ovActs = (i) => `<button class="act" onclick="ovToggleEdit(${i})">改</button> <button class="act" onclick="ovArchive(${i})">归档</button>`;
 function ovToggleEdit(i) {
   const r = ovRows[i];
@@ -818,6 +893,146 @@ async function doImport() {
   await refresh();
 }
 
+// 分页条（岗位库 / 投递总览共用）：varName=页码变量名，render=翻页后重画的函数名
+function pagerHtml(varName, render, total, page, maxPage) {
+  if (maxPage <= 1) return '';
+  const btn = (p, label, dis, cur) => `<button class="act${cur ? ' pri' : ''}" style="min-height:30px;padding:0 10px;font-size:12.5px" ${dis ? 'disabled' : ''} onclick="${varName}=${p};${render}()">${label}</button>`;
+  const from = Math.max(1, page - 2), to = Math.min(maxPage, page + 2);
+  const nums = [];
+  if (from > 1) { nums.push(btn(1, '1', false, page === 1)); if (from > 2) nums.push('<span class="dim">…</span>'); }
+  for (let p = from; p <= to; p += 1) nums.push(btn(p, String(p), false, p === page));
+  if (to < maxPage) { if (to < maxPage - 1) nums.push('<span class="dim">…</span>'); nums.push(btn(maxPage, String(maxPage), false, page === maxPage)); }
+  return `<div class="row" style="justify-content:center;align-items:center;margin-top:12px;gap:5px">${btn(page - 1, '‹ 上一页', page <= 1)}${nums.join('')}<span class="dim" style="margin:0 6px">共 ${total} 条</span>${btn(page + 1, '下一页 ›', page >= maxPage)}</div>`;
+}
+
+// ===== 岗位库（岗位源：你自己维护的腾讯智能表格；标记只存本机，重同步不丢）=====
+let jobFilter = 'todo';   // todo|all|due|star|applied|skip
+let jobPage = 1;          // 当前页码（筛选/搜索变化时重置为 1）
+const JOB_PAGE_SIZE = 20;
+let jobRows = [];         // 当前渲染行（行内按钮按索引回查，避免岗位名进 onclick 转义）
+const JOB_FILTERS = [['todo', '待投'], ['all', '全部'], ['due', '临近截止'], ['ref', '有内推'], ['star', '关注'], ['applied', '已投'], ['skip', '已排除']];
+const jobDaysLeft = (d, now = new Date()) => Math.ceil((new Date(`${d}T23:59:59`) - now) / 86400000);
+const jobView = () => {
+  const J = S.jobs || {};
+  const marks = J.marks || {};
+  return (J.jobs || []).map((j) => ({ ...j, m: marks[j.id] || {} }));
+};
+function renderJobs() {
+  const J = S.jobs || {};
+  const ls = J.lastSync;
+  $('jobPublishBtn').style.display = J.source === 'doc' ? '' : 'none'; // 发布是维护者（文档模式）专属
+  const srcLabel = J.source === 'doc'
+    ? '岗位表由你在腾讯文档里维护，控制台只读同步'
+    : `岗位来自岗位包${J.packUrl ? '（自定义远程地址）' : '（远程自动更新，离线回落内置包）'}，点同步拿最新`;
+  const windowNote = J.total > (J.jobs || []).length ? `；展示最近更新的 ${J.jobs.length} 条（库中共 ${J.total} 条）` : '';
+  $('jobSyncCap').innerHTML = `${srcLabel}；「已投/不投/关注」标记只存本机，重同步不丢${windowNote}`
+    + (ls ? (ls.error ? ` · <span style="color:#b94747">上次同步失败：${esc(ls.error)}</span>` : ` · 上次同步 ${cn(ls.at)}，共 ${ls.count} 条`) : ' · 还没同步过——点「同步岗位库」拉取');
+  const all = jobView();
+  const now = new Date();
+  const due = all.filter((r) => !r.m.skip && !r.m.applied && r.deadline && jobDaysLeft(r.deadline, now) >= 0 && jobDaysLeft(r.deadline, now) <= 7).length;
+  $('jobStats').innerHTML = [
+    `<span class="chip">岗位 ${all.length}</span>`,
+    `<span class="chip">待投 ${all.filter((r) => !r.m.skip && !r.m.applied).length}</span>`,
+    `<span class="chip on">已投 ${all.filter((r) => r.m.applied).length}</span>`,
+    `<span class="chip">内推 ${all.filter((r) => r.referralCode || r.referrer).length}</span>`,
+    `<span class="chip">关注 ${all.filter((r) => r.m.star).length}</span>`,
+    due ? `<span class="chip off">⏰ 七天内截止 ${due}</span>` : '',
+  ].filter(Boolean).join('');
+  $('jobFilters').innerHTML = JOB_FILTERS.map(([k, t]) => `<button class="act${jobFilter === k ? ' pri' : ''}" style="min-height:32px;padding:0 11px;font-size:12.5px" onclick="jobFilter='${k}';jobPage=1;renderJobs()">${t}</button>`).join('');
+  renderJobList();
+}
+function renderJobList() {
+  const J = S.jobs || {};
+  const q = ($('jobSearch').value || '').trim().toLowerCase();
+  const now = new Date();
+  let rows = jobView();
+  if (jobFilter === 'todo') rows = rows.filter((r) => !r.m.skip && !r.m.applied);
+  else if (jobFilter === 'applied') rows = rows.filter((r) => r.m.applied);
+  else if (jobFilter === 'star') rows = rows.filter((r) => r.m.star);
+  else if (jobFilter === 'skip') rows = rows.filter((r) => r.m.skip);
+  else if (jobFilter === 'due') rows = rows.filter((r) => !r.m.skip && !r.m.applied && r.deadline && jobDaysLeft(r.deadline, now) >= 0 && jobDaysLeft(r.deadline, now) <= 7);
+  else if (jobFilter === 'ref') rows = rows.filter((r) => r.referralCode || r.referrer);
+  if (q) rows = rows.filter((r) => `${r.company} ${r.position} ${r.city} ${r.note} ${r.referralCode || ''} ${r.referrer || ''}`.toLowerCase().includes(q));
+  rows.sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''))); // 按更新时间倒序，最新在最前
+  const maxPage = Math.max(1, Math.ceil(rows.length / JOB_PAGE_SIZE));
+  if (jobPage > maxPage) jobPage = maxPage; // 删除岗位/切换筛选后页码钳回有效范围
+  jobRows = rows.slice((jobPage - 1) * JOB_PAGE_SIZE, jobPage * JOB_PAGE_SIZE);
+  if (!rows.length) {
+    $('jobList').innerHTML = `<div class="card empty"><div class="empty-icon">⌕</div>${(J.jobs || []).length ? '没有符合条件的岗位' : (J.docUrl ? '岗位库还是空的——点「同步岗位库」从腾讯文档拉取' : `岗位文档地址未配置：在 ${esc(S.home)}/jobs.json 里写 docUrl 字段后重启控制台`)}</div>`;
+    return;
+  }
+  const pager = pagerHtml('jobPage', 'renderJobList', rows.length, jobPage, maxPage);
+  $('jobList').innerHTML = `<table><thead><tr><th style="width:186px">公司</th><th>岗位</th><th style="width:118px">截止</th><th style="width:120px">城市</th><th style="width:140px">内推</th><th>投递</th><th style="width:168px">标记</th><th style="width:64px">更新</th></tr></thead><tbody>` +
+    jobRows.map((r, i) => {
+      // 截止=信号列：临近红色倒计时 / 正常日期原色 / 招满即止与无信息压到最弱
+      let dl;
+      if (r.deadline) {
+        const d = jobDaysLeft(r.deadline, now);
+        dl = d < 0 ? `<span class="chip">已截止 ${r.deadline.slice(5)}</span>`
+          : d <= 7 ? `<span class="chip off">⏰ ${r.deadline.slice(5)}（${d}天）</span>`
+          : `<span style="white-space:nowrap">${esc(r.deadline.slice(5))}</span>`;
+      } else dl = `<span class="dim" style="opacity:.55;white-space:nowrap">${esc(r.deadlineRaw || '—')}</span>`;
+      // 批次徽章留在公司名下（提前批高亮；去掉「27届」前缀防截断）；内推码独立成列（投递栏之前，点击复制）
+      const badges = [];
+      if (r.batch) {
+        const short = r.batch.replace(/^\d{2}届/, '').slice(0, 5);
+        const early = /提前|暑期|实习/.test(r.batch);
+        badges.push(early
+          ? `<span class="chip" style="font-size:11px;white-space:nowrap;background:var(--amber-soft);color:#a06a0f;border-color:#f1dba9" title="${esc(r.batch)}">⚡ ${esc(short)}</span>`
+          : `<span class="chip" style="font-size:11px;white-space:nowrap;opacity:.75" title="${esc(r.batch)}">${esc(short)}</span>`);
+      }
+      const badgeRow = badges.length ? `<span style="display:flex;gap:4px;flex-wrap:wrap;margin-top:3px">${badges.join('')}</span>` : '';
+      const code = String(r.referralCode || '').replace(/^内推码[:：]?\s*/, '').trim();
+      const refCell = code
+        ? `<span class="chip on" style="font-size:11px;white-space:nowrap;cursor:pointer" title="点击复制${r.referrer ? ` · 联系人 ${r.referrer}` : ''}" onclick="jobCopyCode(${i})">${esc(code)}</span>`
+        : (r.referrer ? `<span class="dim">${esc(r.referrer)}</span>` : '<span class="dim" style="opacity:.5">—</span>');
+      const acts = [
+        `<button class="act${r.m.star ? ' pri' : ''}" style="min-height:28px;padding:0 8px" title="关注" onclick="jobMark(${i},'star')">${r.m.star ? '★' : '☆'}</button>`,
+        `<button class="act${r.m.applied ? ' pri' : ''}" style="min-height:28px;padding:0 8px" title="标记为已投递" onclick="jobMark(${i},'applied')">${r.m.applied ? '✓ 已投' : '已投'}</button>`,
+        `<button class="act${r.m.skip ? ' warn' : ''}" style="min-height:28px;padding:0 8px" title="不投：从默认列表隐藏（可在「已排除」里恢复）" onclick="jobMark(${i},'skip')">${r.m.skip ? '✗ 不投' : '不投'}</button>`,
+      ].join('');
+      const link = r.link ? `<a class="panel-link" href="${esc(r.link)}" target="_blank" rel="noopener">去投递 ↗</a>` : '<span class="dim">—</span>';
+      const upd = r.updatedAt ? `<span class="dim" style="opacity:.6;white-space:nowrap">${esc(String(r.updatedAt).slice(5, 10))}</span>` : '<span class="dim">—</span>';
+      return `<tr${r.m.skip ? ' style="opacity:.55"' : ''}><td data-label="公司"><span style="display:flex;align-items:baseline;gap:4px"><strong class="ellip" style="max-width:150px" title="${esc(r.company)}">${esc(r.company)}</strong>${r.m.star ? '<span style="color:#d69a10">★</span>' : ''}</span>${badgeRow}</td><td data-label="岗位"><span class="ellip" style="max-width:400px;font-weight:600" title="${esc(r.position)}">${esc(r.position)}</span>${r.m.applied ? ' <span class="chip on" style="font-size:11px">已投</span>' : ''}${r.note ? `<span class="ellip job-note" style="max-width:400px" title="${esc(r.note)}">${esc(r.note)}</span>` : ''}</td><td data-label="截止" style="white-space:nowrap">${dl}</td><td data-label="城市"><span class="ellip" style="max-width:104px" title="${esc(r.city)}">${esc(r.city || '—')}</span></td><td data-label="内推">${refCell}</td><td data-label="投递">${link}</td><td data-label="标记"><span style="display:inline-flex;gap:4px;white-space:nowrap">${acts}</span></td><td data-label="更新">${upd}</td></tr>`;
+    }).join('') + '</tbody></table>' + pager;
+}
+async function jobMark(i, k) {
+  const r = jobRows[i];
+  if (!r) return;
+  try { await api('/api/jobs/mark', { id: r.id, [k]: !r.m[k] }); }
+  catch (e) { toast(e.message); return; }
+  await refresh();
+}
+function copyText(t) {
+  const done = () => toast(`已复制 ${t}`);
+  const fallback = () => {
+    const ta = document.createElement('textarea');
+    ta.value = t; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); done(); } catch { toast('复制失败，请手动选择'); }
+    ta.remove();
+  };
+  if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(t).then(done, fallback);
+  else fallback();
+}
+function jobCopyCode(i) {
+  const r = jobRows[i];
+  if (!r) return;
+  const code = String(r.referralCode || '').replace(/^内推码[:：]?\s*/, '').trim() || String(r.referrer || '').trim();
+  if (!code) { toast('这条没有内推码'); return; }
+  copyText(code);
+}
+async function jobsSync() {
+  try { await api('/api/jobs/sync', {}); toast('同步已开始'); }
+  catch (e) { toast(e.message); }
+  await refresh();
+}
+async function jobsPublish() {
+  try { await api('/api/jobs/publish', {}); toast('发布已开始：同步文档 → 打包 → 提交推送（结果见系统通知/活动日志）'); }
+  catch (e) { toast(e.message); }
+  await refresh();
+}
+
 function renderSettings() {
   const isWin = (S.platform || 'darwin') === 'win32';
   const laOnLabel = isWin ? '开机自启' : '服务常驻';
@@ -828,6 +1043,10 @@ function renderSettings() {
   $('laKa').className = 'chip ' + ((S.services || {}).console ? 'on' : 'off');
   $('laRp').textContent = laRpLabel + '：' + ((S.services || {}).schedule ? '已安装 ✓' : '未安装');
   $('laRp').className = 'chip ' + ((S.services || {}).schedule ? 'on' : 'off');
+  $('laJp').textContent = '岗位包定时发布：' + ((S.services || {}).jobpack ? '已安装 ✓（每日 12:00 / 21:30）' : '未安装');
+  $('laJp').className = 'chip ' + ((S.services || {}).jobpack ? 'on' : 'off');
+  $('laJpBtn').textContent = (S.services || {}).jobpack ? '卸载岗位包定时发布' : '安装岗位包定时发布';
+  $('laJpBtn').className = 'act' + ((S.services || {}).jobpack ? ' warn' : '');
   if (!$('fHook').value) $('fHook').placeholder = S.feishu.configured ? '已配置（重新填写并保存可更新）' : 'https://open.feishu.cn/open-apis/bot/v2/hook/xxxx';
   renderMailAccounts();
   const mailInfo = S.mail || {};
@@ -892,7 +1111,7 @@ function mailCorrect(id) {
   const m = ((S.mail || {}).recent || []).find((x) => x.id === id);
   if (!m || !m.link || m.link.kind !== 'site') return;
   const i = ovRows.findIndex((r) => r.key === m.link.site && r.job === m.link.job && (r.dept || '') === (m.link.dept || '') && !r.archived);
-  if (i < 0) { toast('总览里没有这条投递（可能已归档）'); return; }
+  if (i < 0) { toast('总览当前筛选里没有这条投递（可能已归档或被公司/状态筛掉）'); return; }
   document.getElementById(`ov-act-${i}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   ovToggleEdit(i);
   const suggest = MAIL_KIND_STATUS[m.kind] || 'UNKNOWN';
@@ -931,6 +1150,12 @@ function statusOptions() {
   return choices.map(([v, t]) => `<option value="${v}">${t}</option>`).join('');
 }
 async function pollMailNow() { try { await api('/api/mail/poll', {}); toast('已开始拉取邮箱'); } catch (e) { toast(e.message); } await refresh(); }
+async function toggleJobpackSchedule() {
+  const install = !((S.services || {}).jobpack);
+  try { await api('/api/jobs/schedule', install ? {} : { remove: true }); toast(install ? '已安装：每日 12:00 / 21:30 自动发布岗位包' : '已卸载岗位包定时发布'); }
+  catch (e) { toast(e.message); }
+  await refresh();
+}
 async function saveFeishu() {
   try {
     await api('/api/feishu', { webhook: $('fHook').value.trim(), secret: $('fSecret').value.trim() });
@@ -957,7 +1182,7 @@ const spy = new IntersectionObserver((entries) => {
     });
   }
 }, { rootMargin: '-15% 0px -70% 0px' });
-['secOverview', 'secSites', 'secRecords', 'secMail', 'secImport', 'secSettings'].forEach((id) => { const el = document.getElementById(id); if (el) spy.observe(el); });
+['secOverview', 'secSites', 'secRecords', 'secMail', 'secJobs', 'secImport', 'secSettings'].forEach((id) => { const el = document.getElementById(id); if (el) spy.observe(el); });
 
 refresh();
 </script>

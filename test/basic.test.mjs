@@ -14,6 +14,7 @@ const { recordKey, extractApplications, normalizeStatus } = await import(`${SRC}
 const { setCorrection, setArchived, applyToRecords, readCorrections, readArchived } = await import(`${SRC}corrections.mjs`);
 const { enrichMailRows, bindMail, unbindMail, candidatesFor } = await import(`${SRC}maillinks.mjs`);
 const { mailId, classifyMail, extractScheduleTip } = await import(`${SRC}mail.mjs`);
+const { parseDocUrl, stableJobId, parseDeadline, mapRowsToJobs, setJobMark, readJobState, saveJobState, buildJobPack, applyJobPack, readPackSource, evaluatePublish, recentJobs } = await import(`${SRC}jobs.mjs`);
 
 const ex = (t) => extractApplications(t);
 const one = (job, dept, status) => JSON.stringify({ content: [{ jobName: job, deptName: dept, statusName: status }] });
@@ -89,4 +90,159 @@ test('extractScheduleTip:日期+时间齐全才产出', () => {
 test('normalizeStatus 中文归一', () => {
   assert.equal(normalizeStatus('已投递'), 'APPLIED');
   assert.equal(normalizeStatus('面试未通过'), 'REJECTED');
+});
+
+// ===== 岗位库（岗位源：腾讯智能表格；jobs.json 落在临时 ATS_STATUS_HOME）=====
+
+test('parseDocUrl: 只认智能表格且必须带 tab，剥噪声参数', () => {
+  const p = parseDocUrl('https://docs.qq.com/smartsheet/DTkRMUVhoUWJXZEhJ?tab=tTNjGc&login_t=1789059829896&viewId=vmLdET');
+  assert.equal(p.docId, 'DTkRMUVhoUWJXZEhJ');
+  assert.equal(p.subId, 'tTNjGc');
+  assert.equal(p.viewId, 'vmLdET');
+  assert.equal(p.canonical, 'https://docs.qq.com/smartsheet/DTkRMUVhoUWJXZEhJ?tab=tTNjGc&viewId=vmLdET');
+  assert.equal(parseDocUrl('https://docs.qq.com/sheet/abc?tab=x'), null, '普通在线表格不支持');
+  assert.equal(parseDocUrl('https://example.com/smartsheet/a?tab=b'), null, '外域不支持');
+  assert.equal(parseDocUrl('https://docs.qq.com/smartsheet/a'), null, '缺 tab 不算');
+  assert.equal(parseDocUrl(''), null);
+});
+
+test('stableJobId: 内容不变 id 不变，链接一变即变', () => {
+  assert.equal(stableJobId('字节', '算法', 'https://a.com'), stableJobId('字节', '算法', 'https://a.com'));
+  assert.notEqual(stableJobId('字节', '算法', 'https://a.com'), stableJobId('字节', '算法', 'https://b.com'));
+  assert.ok(stableJobId('字节', '算法', '').startsWith('job-'));
+});
+
+test('parseDeadline: 常见写法归一，认不出返回空串', () => {
+  const now = new Date('2026-09-11T12:00:00');
+  assert.equal(parseDeadline('2026-10-31', now), '2026-10-31');
+  assert.equal(parseDeadline('2026/10/31 23:59', now), '2026-10-31');
+  assert.equal(parseDeadline('2026 06 30', now), '2026-06-30', '空格分隔');
+  assert.equal(parseDeadline('2026年10月31日', now), '2026-10-31');
+  assert.equal(parseDeadline('2026-10', now), '2026-10-31', '年月归月底');
+  assert.equal(parseDeadline('10月底', now), '2026-10-31');
+  assert.equal(parseDeadline('10-31', now), '2026-10-31');
+  assert.equal(parseDeadline('1-15', now), '2027-01-15', '无年份已过则顺延一年');
+  assert.equal(parseDeadline('尽快', now), '');
+  assert.equal(parseDeadline('', now), '');
+});
+
+test('mapRowsToJobs: 固定列精确映射 + 别名兜底 + 残行跳过 + 同 id 去重 + addedAt 保留', () => {
+  const header = ['公司', '岗位', '城市', '截止时间', '投递链接', '备注'];
+  const rows = [
+    [{ text: '字节' }, { text: '大模型算法' }, { text: '北京' }, { text: '2026-10-31' }, { text: '点此投递', link: 'https://docs.qq.com/link?url=https%3A%2F%2Fjobs.bytedance.com' }, { text: 'Seed 计划' }],
+    [{ text: '' }, { text: '没填公司的行' }, { text: '' }, { text: '' }, {}, { text: '残行应被跳过' }],
+    [{ text: '米哈游' }, { text: '算法工程师' }, { text: '上海' }, { text: '10月底' }, { text: 'https://mihoyo.com/campus', link: '' }, { text: '' }],
+    [{ text: '字节' }, { text: '大模型算法' }, { text: '北京' }, { text: '2026-10-31' }, { text: '点此投递', link: 'https://docs.qq.com/link?url=https%3A%2F%2Fjobs.bytedance.com' }, { text: '与第 1 行同内容，应去重' }],
+  ];
+  const first = mapRowsToJobs(header, rows);
+  assert.ok(!first.error, first.error);
+  assert.equal(first.jobs.length, 2, '残行跳过、同 id 去重');
+  const bytedance = first.jobs.find((j) => j.company === '字节');
+  assert.equal(bytedance.link, 'https://jobs.bytedance.com', 'docs.qq.com/link 跳转包装解包');
+  assert.equal(bytedance.deadline, '2026-10-31');
+  assert.equal(first.jobs.find((j) => j.company === '米哈游').deadline, '2026-10-31');
+  const again = mapRowsToJobs(header, rows, first.jobs);
+  assert.equal(again.jobs.find((j) => j.company === '字节').addedAt, bytedance.addedAt, '重同步同内容保留入库时间');
+  const alias = mapRowsToJobs(
+    ['公司名称', '招聘岗位', '工作地点', '招聘截止日期', '投递链接or推文', '备注', '内推码', '内推联系人', '批次', '更新日期'],
+    [[{ text: '百度' }, { text: '机器学习' }, { text: '北京' }, { text: '2026-11-30' }, { text: 'https://talent.baidu.com' }, { text: '重点' }, { text: 'NT2026' }, { text: '张三' }, { text: '正式批' }, { text: '2026-09-10T08:00:00.000Z' }]],
+  );
+  assert.ok(!alias.error, alias.error);
+  assert.equal(alias.jobs[0].city, '北京');
+  assert.equal(alias.jobs[0].deadline, '2026-11-30');
+  assert.equal(alias.jobs[0].link, 'https://talent.baidu.com');
+  assert.equal(alias.jobs[0].note, '重点', '备注列只存原始备注');
+  assert.equal(alias.jobs[0].referralCode, 'NT2026', '内推信息结构化保存');
+  assert.equal(alias.jobs[0].referrer, '张三');
+  assert.equal(alias.jobs[0].batch, '正式批');
+  assert.equal(alias.jobs[0].updatedAt, '2026-09-10T08:00:00.000Z', '更新日期列映射为 updatedAt');
+  // 文档没填更新日期的行（同 id 内容不变）：回落到上次同步值，不随同步漂移
+  const noUpdRow = [{ text: '百度' }, { text: '机器学习' }, { text: '北京' }, { text: '2026-11-30' }, { text: 'https://talent.baidu.com' }, { text: '重点' }, { text: 'NT2026' }, { text: '张三' }, { text: '正式批' }];
+  const noUpd = mapRowsToJobs(['公司名称', '招聘岗位', '工作地点', '招聘截止日期', '投递链接or推文', '备注', '内推码', '内推联系人', '批次'], [noUpdRow], alias.jobs).jobs[0];
+  assert.equal(noUpd.id, alias.jobs[0].id, '同内容同 id');
+  assert.equal(noUpd.updatedAt, '2026-09-10T08:00:00.000Z', '同 id 沿用上次值');
+  assert.ok(mapRowsToJobs(['列甲', '列乙'], [[{ text: 'x' }]]).error, '公司/岗位认不出宁缺毋滥');
+});
+
+test('岗位标记:覆盖层独立于岗位内容,重同步整表替换后仍保留', () => {
+  saveJobState({ docUrl: 'https://docs.qq.com/smartsheet/AbCd1234?tab=Tab1', lastSync: null, jobs: [{ id: 'job-x', company: 'A', position: 'P' }], marks: {} });
+  setJobMark('job-x', { applied: true, star: true });
+  // 模拟重同步：岗位整表替换，marks 不动
+  const st2 = readJobState();
+  st2.jobs = [{ id: 'job-y', company: 'B', position: 'Q' }];
+  saveJobState(st2);
+  assert.equal(readJobState().marks['job-x'].applied, true, '旧岗位的标记保留');
+  assert.throws(() => setJobMark('job-ghost', { skip: true }), /不存在/);
+});
+
+test('岗位包:默认剥离内推码/联系人并清洗链接内推参数(--full 保留),应用端白名单清洗、保 addedAt、拒非法包', () => {
+  saveJobState({
+    source: 'doc', docUrl: 'https://docs.qq.com/smartsheet/AbCd1234?tab=Tab1', lastSync: null, marks: { 'job-a': { applied: true } },
+    jobs: [
+      { id: 'job-a', company: 'A公司', position: '算法', link: 'https://app.mokahr.com/x/123?recommendCode=DS123&lang=zh#/jobs', note: '备注x', referralCode: 'NT1', referrer: '张三', batch: '正式批', deadline: '2026-10-31', deadlineRaw: '2026-10-31', city: '北京', addedAt: '2026-09-01T00:00:00.000Z', updatedAt: '2026-09-10T08:00:00.000Z' },
+      { id: 'job-b', company: 'B公司', position: '工程', link: '', note: '', referralCode: '', referrer: '', batch: '', addedAt: '2026-09-02T00:00:00.000Z', updatedAt: '2026-09-09T00:00:00.000Z' },
+    ],
+  });
+  const { pack, stripped } = buildJobPack({});
+  assert.equal(pack.kind, 'campus-apply-tracker-job-pack');
+  assert.equal(pack.count, 2);
+  assert.equal(stripped, 1, '一条含内推信息被剥离');
+  assert.ok(!('referralCode' in pack.jobs[0]) && !('referrer' in pack.jobs[0]), '默认剥离内推码/联系人字段');
+  assert.ok(!/recommendcode/i.test(pack.jobs[0].link), '链接里的内推参数一并清洗');
+  assert.ok(/lang=zh/.test(pack.jobs[0].link), '无关参数保留');
+  assert.notEqual(pack.jobs[0].id, 'job-a', 'ID 按清洗后内容重算');
+  assert.equal(pack.jobs[0].batch, '正式批', '批次保留');
+  assert.equal(pack.jobs[0].note, '备注x');
+  const fullPack = buildJobPack({ full: true }).pack;
+  assert.equal(fullPack.jobs[0].referralCode, 'NT1', '--full 保留字段');
+  assert.ok(/recommendCode=DS123/.test(fullPack.jobs[0].link), '--full 保留原始链接');
+  const applied = applyJobPack(pack, [{ id: pack.jobs[0].id, addedAt: '2026-09-01T00:00:00.000Z' }]);
+  assert.equal(applied.length, 2);
+  assert.equal(applied[0].addedAt, '2026-09-01T00:00:00.000Z', '重同步保留入库时间');
+  assert.ok(!applied[0].referrer, '应用端同样不带内推联系人');
+  assert.throws(() => applyJobPack({ kind: '别的' }), /不是有效的岗位包/);
+  const rebuilt = applyJobPack({ kind: 'campus-apply-tracker-job-pack', jobs: [{ company: 'C公司', position: 'P岗' }, { position: '没公司的行' }] });
+  assert.equal(rebuilt.length, 1, '缺公司跳过');
+  assert.ok(rebuilt[0].id.startsWith('job-'), '缺 id 按内容重算');
+});
+
+test('岗位源推断:全新用户走岗位包,只有 docUrl 视为维护者文档,显式 source 优先', () => {
+  fs.rmSync(path.join(process.env.ATS_STATUS_HOME, 'jobs.json'), { force: true });
+  assert.equal(readJobState().source, 'pack', '全新用户默认岗位包');
+  saveJobState({ docUrl: 'https://docs.qq.com/smartsheet/X1?tab=Y1', lastSync: null, jobs: [], marks: {} });
+  assert.equal(readJobState().source, 'doc', '旧数据(仅 docUrl)兼容为文档模式');
+  saveJobState({ source: 'pack', docUrl: 'https://docs.qq.com/smartsheet/X1?tab=Y1', lastSync: null, jobs: [], marks: {} });
+  assert.equal(readJobState().source, 'pack', '显式 source 优先于 docUrl');
+});
+
+test('岗位包读取:远程优先,失败回落本地内置包', async () => {
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = async () => { throw new Error('模拟断网'); };
+  try {
+    const payload = await readPackSource('', () => {});
+    assert.equal(payload.kind, 'campus-apply-tracker-job-pack', '远程失败回落本地内置包');
+  } finally { globalThis.fetch = origFetch; }
+  const remote = { kind: 'campus-apply-tracker-job-pack', schemaVersion: 1, jobs: [] };
+  globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => remote });
+  try {
+    assert.equal(await readPackSource('https://example.com/pack.json', () => {}), remote, '自定义远程地址可达时直接用远程');
+  } finally { globalThis.fetch = origFetch; }
+});
+
+test('发布防呆:绝对下限拦异常清空,相对跌幅过半拦骤降,正常波动放行', () => {
+  assert.ok(evaluatePublish({ count: 2246, prevCount: 2200 }).ok, '正常增长放行');
+  assert.ok(evaluatePublish({ count: 2246 }).ok, '没有上一版也可发布');
+  assert.ok(!evaluatePublish({ count: 80, prevCount: 2200 }).ok, '低于绝对下限拦截');
+  assert.ok(!evaluatePublish({ count: 0 }).ok, '空库拦截');
+  const drop = evaluatePublish({ count: 900, prevCount: 2246 });
+  assert.ok(!drop.ok && /骤降/.test(drop.reason), '跌幅过半拦截并说明原因');
+  assert.ok(evaluatePublish({ count: 1200, prevCount: 2246 }).ok, '跌幅未过半放行');
+});
+
+test('展示窗口:recentJobs 按更新时间取最近 N 条', () => {
+  const st = { jobs: Array.from({ length: 300 }, (_, i) => ({ id: `j${i}`, company: `C${i}`, position: 'P', updatedAt: `2026-09-${String((i % 28) + 1).padStart(2, '0')}T00:00:00Z` })) };
+  const win = recentJobs(st, 250);
+  assert.equal(win.length, 250, '超出窗口截取');
+  assert.equal(recentJobs({ jobs: st.jobs.slice(0, 100) }, 250).length, 100, '不足窗口全给');
+  assert.ok(recentJobs(st, 3)[0].updatedAt >= recentJobs(st, 3)[2].updatedAt, '最新在前');
 });
