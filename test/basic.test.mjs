@@ -427,13 +427,14 @@ test('岗位库「已投」联动:落记录、去重、纯净回收、进展保�
   const appsReset = (list) => fs.writeFileSync(appsFile(), JSON.stringify(list), 'utf8');
   appsReset([]);
   // 联动只碰 apps.json,不依赖岗位库状态;这里仅验证记录生命周期
-  const r1 = addJobMarkRecord({ company: '联测公司', job: '联动工程师', link: 'https://j.example/1' });
+  const r1 = addJobMarkRecord({ company: '联测公司', job: '联动工程师', link: 'https://j.example/1', city: '上海' });
   assert.deepEqual(r1, { created: true, existed: false }, '首次点击创建记录');
   let rec = readApps()[0];
   assert.equal(rec.origin, 'jobmark');
   assert.equal(rec.statusRaw, '已投递');
   assert.match(rec.appliedAt, /^\d{4}-\d{2}-\d{2}$/, 'appliedAt=点击当天');
   assert.equal(rec.link, 'https://j.example/1');
+  assert.equal(rec.city, '上海', '城市随岗位带上');
 
   const r2 = addJobMarkRecord({ company: '联测公司', job: '联动工程师', link: 'https://j.example/1' });
   assert.equal(r2.created, false, '重复点击不重复建');

@@ -865,7 +865,7 @@ function renderOverview() {
       all.push({ company: s.label, key: s.key, ...r, tk: `site|${s.key}|${r.job}|${r.dept || ''}`, src: `${s.label}（自动）`, at });
     }
   }
-  for (const a of S.apps) all.push({ company: a.company, job: a.job, tk: `apps|${a.company}|${a.job}|`, statusRaw: a.statusRaw, appliedAt: a.appliedAt, src: a.origin === 'jobmark' ? '岗位库' : '手工', at: null });
+  for (const a of S.apps) all.push({ company: a.company, job: a.job, tk: `apps|${a.company}|${a.job}|`, statusRaw: a.statusRaw, appliedAt: a.appliedAt, city: a.city, src: a.origin === 'jobmark' ? '岗位库' : '手工', at: null });
   // 邮件挂载：已关联到具体记录的邮件按目标分组，挂在总览行下（未关联的在邮件面板处理）
   const mailByTarget = new Map();
   for (const m of ((S.mail || {}).recent || [])) {
@@ -915,7 +915,7 @@ function renderOverview() {
         : `<span id="ov-act-${i}">${ovActs(i)}</span>`;
       const mails = mailByTarget.get(r.tk) || [];
       const full = r.job + (r.dept ? ` · ${r.dept}` : '');
-      return `<tr${r.archived ? ' style="opacity:.55"' : ''}><td data-label="公司" style="white-space:nowrap">${esc(r.company)}${!r.key ? `<span class="dim" style="font-size:11px;margin-left:4px" title="记录来源：${esc(r.src)}">${esc(r.src)}</span>` : ''}</td><td data-label="岗位"><span class="ellip" style="max-width:430px" title="${esc(full)}"><strong>${esc(r.job)}</strong>${r.dept ? `<span class="dim"> · ${esc(r.dept)}</span>` : ''}</span>${r.corrected ? ' <span class="chip on" style="font-size:11px">✎已人工修正</span>' : ''}${r.archived ? ' <span class="chip off" style="font-size:11px">🗄已归档</span>' : ''}</td><td data-label="地点">${esc(r.city || '—')}</td><td data-label="状态">${badge(r.statusRaw)}</td><td data-label="数据时间" class="dim">${r.at ? ovTime(r.at) : '—'}</td><td data-label="操作">${acts}</td></tr>`
+      return `<tr${r.archived ? ' style="opacity:.55"' : ''}><td data-label="公司" style="white-space:nowrap">${esc(r.company)}${!r.key ? `<span class="dim" style="font-size:11px;margin-left:4px" title="记录来源：${esc(r.src)}">${esc(r.src)}</span>` : ''}</td><td data-label="岗位"><span class="ellip" style="max-width:430px" title="${esc(full)}"><strong>${esc(r.job)}</strong>${r.dept ? `<span class="dim"> · ${esc(r.dept)}</span>` : ''}</span>${r.corrected ? ' <span class="chip on" style="font-size:11px">✎已人工修正</span>' : ''}${r.archived ? ' <span class="chip off" style="font-size:11px">🗄已归档</span>' : ''}</td><td data-label="地点">${esc(r.city || '—')}</td><td data-label="状态">${badge(r.statusRaw)}</td><td data-label="数据时间" class="dim">${r.at ? ovTime(r.at) : esc(r.appliedAt || '—')}</td><td data-label="操作">${acts}</td></tr>`
         + (mails.length ? `<tr><td colspan="6" style="padding:2px 14px 10px;font-size:12px;color:#475569">${mails.map((m) => `📬 ${mailBadge(m.kind)} ${esc(m.subject)}${mailTip(m)} <span class="dim">${cn(m.at)}</span>`).join('<br>')}</td></tr>` : '');
     }).join('') + '</tbody></table>' + pagerHtml('ovPage', 'renderOverview', rows.length, ovPage, maxPage);
 }

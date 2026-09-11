@@ -798,7 +798,7 @@ async function route(req, res, url) {
         let record = null;
         if (body.applied !== undefined) {
           record = body.applied
-            ? addJobMarkRecord({ company: job.company, job: job.position, link: job.link })
+            ? addJobMarkRecord({ company: job.company, job: job.position, link: job.link, city: job.city })
             : removeJobMarkRecord({ company: job.company, job: job.position }, hasMailBinding({ kind: 'apps', company: job.company, job: job.position }));
           if (record.created) log(`✅ 已投并记入投递总览：${job.company}「${job.position}」`);
           else if (record.removed) log(`↩️ 取消已投，移除对应记录：${job.company}「${job.position}」`);

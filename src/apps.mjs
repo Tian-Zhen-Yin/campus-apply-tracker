@@ -83,7 +83,7 @@ export function importFromText(text) {
 // ===== 岗位库「已投」联动（ADR-0007）：点已投=落一条带来源的记录；取消时按纯净度回收 =====
 
 // 标记已投 → 创建记录。同公司同岗位（精确匹配）已有记录则只标记不建，绝不重复。
-export function addJobMarkRecord({ company, job, link }) {
+export function addJobMarkRecord({ company, job, link, city }) {
   const apps = readApps();
   const c = String(company || '').trim();
   const j = String(job || '').trim();
@@ -96,6 +96,7 @@ export function addJobMarkRecord({ company, job, link }) {
     statusRaw: '已投递', status: normalizeStatus('已投递'),
     appliedAt: new Date().toLocaleDateString('sv-SE'),
     link: String(link || '').trim(),
+    city: String(city || '').trim(),
     origin: 'jobmark', addedAt: nowIso(),
   });
   writeJson(appsFile(), apps);
