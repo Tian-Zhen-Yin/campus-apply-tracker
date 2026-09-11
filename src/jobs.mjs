@@ -77,6 +77,7 @@ export function stableJobId(company, position, link) {
 const COLUMN_RULES = [
   ['company', ['公司', '公司名称', '企业', '单位', '厂商', '雇主']],
   ['position', ['岗位', '岗位方向', '招聘岗位', '职位', '职务', '方向']],
+  ['title', ['公告标题', '公告名称']], // 公告板型表格:公司嵌在标题里,见 extractCompany(裸词「公告」太贪,会误吞链接列)
   ['city', ['城市', '工作城市', '工作地', '地点', '地区']],
   ['deadline', ['截止时间', '截止日期', '招聘截止日期', '网申截止', '网申时间', '结束时间', '截止', 'deadline']],
   ['link', ['投递链接', '投递地址', '链接', '投递', '网申', '申请', '官网']],
@@ -86,6 +87,13 @@ const COLUMN_RULES = [
   ['batch', ['批次', '届次', '招聘类型']],
   ['updatedAt', ['更新日期', '更新时间']],
 ];
+// 公告板型表格的公司名提取:标题形如「易方达基金 2027 届秋招启动」,取招聘关键词前的前缀
+export function extractCompany(title) {
+  const t = String(title || '').trim();
+  if (!t) return '';
+  const m = t.match(/^(.+?)\s*(?=20\d{2}\s*届|【?20\d{2}|校园|秋季|春季|秋招|春招|校招|招聘|实习|内推|补招|正式批|提前批)/);
+  return clean(m ? m[1] : t.split(/\s+/)[0]);
+}
 export function matchColumn(name) {
   const n = String(name || '').trim();
   if (!n) return null;
@@ -141,8 +149,10 @@ export function mapRowsToJobs(header, rows, prevJobs = []) {
     const key = matchColumn(name);
     if (key && !(key in idx)) idx[key] = i;
   });
-  if (!('company' in idx) || !('position' in idx)) {
-    return { error: `表头里没认出「公司/岗位」列（现有列：${header.map(clean).join('、') || '空'}）`, jobs: [] };
+  // 两种表型:岗位列表型(公司+岗位列)或公告板型(只有「公告标题」,公司嵌在标题前缀里)
+  const boardMode = !('company' in idx) && !('position' in idx) && 'title' in idx;
+  if (!('company' in idx) && !('position' in idx) && !boardMode) {
+    return { error: `表头里没认出「公司/岗位」或「公告标题」列（现有列：${header.map(clean).join('、') || '空'}）`, jobs: [] };
   }
   const prevAt = new Map(prevJobs.map((j) => [j.id, j.addedAt]));
   const prevUpd = new Map(prevJobs.map((j) => [j.id, j.updatedAt]).filter(([, v]) => !!v));
@@ -153,9 +163,16 @@ export function mapRowsToJobs(header, rows, prevJobs = []) {
       const c = (k in idx) ? (cells[idx[k]] || {}) : {};
       return { text: clean(c.text), link: normalizeUrl(c.link, c.text) };
     };
-    const company = cell('company').text;
-    const position = cell('position').text;
-    if (!company || !position) continue; // 空行/填了一半的行不算岗位
+    let company, position;
+    if (boardMode) {
+      position = cell('title').text;
+      if (!position) continue;
+      company = extractCompany(position);
+    } else {
+      company = cell('company').text;
+      position = cell('position').text;
+      if (!company || !position) continue; // 空行/填了一半的行不算岗位
+    }
     const { link } = cell('link');
     const deadlineRaw = cell('deadline').text;
     const id = stableJobId(company, position, link);
@@ -268,9 +285,13 @@ const READ_SHEET = async (params) => {
   };
   try {
     const meta = await apiFetchJson(`https://docs.qq.com/dop-api/opendoc?id=${encodeURIComponent(docId)}&outformat=1&normal=1`);
-    const localPadId = (meta && meta.bodyData && meta.bodyData.localPadId) || '';
+    // 两种响应形态:常规文档走 bodyData.localPadId;新式项目(isBlankPage/isNewProject)没有 bodyData,
+    // padId 与标题在 clientVars 里——漏掉这层就报「没有文档信息」,实测可直接用于 get/sheet
+    const bd = meta && meta.bodyData;
+    const cv = meta && meta.clientVars;
+    const localPadId = (bd && bd.localPadId) || (cv && cv.padId) || '';
     if (!localPadId) { out.needLogin = true; out.error = '没有读到文档信息——多半是未登录腾讯文档或无查看权限'; return out; }
-    out.title = (meta.bodyData && (meta.bodyData.initialTitle || meta.bodyData.pageTitle)) || '';
+    out.title = (bd && (bd.initialTitle || bd.pageTitle)) || (cv && cv.padTitle) || '';
     const fields = {};
     const fieldOptions = {};
     let fieldsReady = false;
@@ -343,10 +364,14 @@ export function previewDocSource(url, { headed = false } = {}) {
         if (key && !(key in idx)) idx[key] = i;
       });
       const missing = ['company', 'position'].filter((k) => !(k in idx));
-      if (missing.length) {
-        return { ok: false, error: `表头里没认出「公司/岗位」列（现有列：${header.join('、') || '空'}）——请在文档里调整列名后重试`, header };
+      const boardOk = !('company' in idx) && 'title' in idx; // 公告板型:公司嵌在公告标题里
+      if (missing.length && !boardOk) {
+        return { ok: false, error: `表头里没认出「公司/岗位」或「公告标题」列（现有列：${header.join('、') || '空'}）——请在文档里调整列名后重试`, header };
       }
-      const valid = r.rows.filter((cells) => clean(cells[idx.company]?.text) && clean(cells[idx.position]?.text));
+      const keyCol = boardOk ? idx.title : null;
+      const valid = r.rows.filter((cells) => keyCol !== null
+        ? clean(cells[keyCol]?.text)
+        : (clean(cells[idx.company]?.text) && clean(cells[idx.position]?.text)));
       return {
         ok: true, title: r.title, header, rowCount: valid.length, canonical: parsed.canonical,
         sample: valid.slice(0, 3).map((cells) => header.map((_, i) => clean(cells[i]?.text))),

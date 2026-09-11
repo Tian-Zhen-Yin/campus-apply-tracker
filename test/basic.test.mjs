@@ -14,7 +14,7 @@ const { recordKey, extractApplications, normalizeStatus } = await import(`${SRC}
 const { setCorrection, setArchived, applyToRecords, readCorrections, readArchived } = await import(`${SRC}corrections.mjs`);
 const { enrichMailRows, bindMail, unbindMail, candidatesFor } = await import(`${SRC}maillinks.mjs`);
 const { mailId, classifyMail, extractScheduleTip } = await import(`${SRC}mail.mjs`);
-const { parseDocUrl, stableJobId, parseDeadline, mapRowsToJobs, setJobMark, readJobState, saveJobState, buildJobPack, applyJobPack, readPackSource, evaluatePublish, recentJobs, removeDocSource, syncSource } = await import(`${SRC}jobs.mjs`);
+const { parseDocUrl, stableJobId, parseDeadline, mapRowsToJobs, setJobMark, readJobState, saveJobState, buildJobPack, applyJobPack, readPackSource, evaluatePublish, recentJobs, removeDocSource, syncSource, extractCompany } = await import(`${SRC}jobs.mjs`);
 
 const ex = (t) => extractApplications(t);
 const one = (job, dept, status) => JSON.stringify({ content: [{ jobName: job, deptName: dept, statusName: status }] });
@@ -90,6 +90,30 @@ test('extractScheduleTip:日期+时间齐全才产出', () => {
 test('normalizeStatus 中文归一', () => {
   assert.equal(normalizeStatus('已投递'), 'APPLIED');
   assert.equal(normalizeStatus('面试未通过'), 'REJECTED');
+});
+
+test('公告板型表格:公司名从公告标题前缀提取,无公司/岗位列也能成岗', () => {
+  assert.equal(extractCompany('易方达基金 2027 届秋招启动'), '易方达基金');
+  assert.equal(extractCompany('中国飞机强度研究所 2027届校园招聘启动'), '中国飞机强度研究所');
+  assert.equal(extractCompany('沃德精密 2027 届校园招聘正式开启'), '沃德精密');
+  assert.equal(extractCompany('米哈游多地办公专场'), '米哈达'.length > 0 ? '米哈游多地办公专场' : '', '无招聘关键词时整串兜底');
+  assert.equal(extractCompany(''), '');
+  // 公告板表头(真实文档形态)映射
+  const header = ['更新日期', '所在行业', '公告&投递官网链接', '工作地点', '公告标题', '招聘类型', '截止日期'];
+  const rows = [
+    [{ text: '' }, { text: '金融' }, { text: '点击查看', link: 'https://wecruit.hotjob.cn/SU67/x' }, { text: '北上广深' }, { text: '易方达基金 2027 届秋招启动' }, { text: '秋招' }, { text: '未明确尽快投' }],
+    [{ text: '' }, { text: '' }, { text: '点击查看', link: 'https://mp.weixin.qq.com/s/abc' }, { text: '上海' }, { text: '保银私募 2027 届校园招聘启动' }, { text: '' }, { text: '' }],
+    [{ text: '' }, { text: '' }, { text: '' }, { text: '' }, { text: '' }, { text: '' }, { text: '' }],
+  ];
+  const r = mapRowsToJobs(header, rows);
+  assert.ok(!r.error, r.error);
+  assert.equal(r.jobs.length, 2, '空公告行跳过');
+  assert.equal(r.jobs[0].company, '易方达基金');
+  assert.equal(r.jobs[0].position, '易方达基金 2027 届秋招启动', '公告标题整条作为岗位');
+  assert.equal(r.jobs[0].link, 'https://wecruit.hotjob.cn/SU67/x', '「公告&投递官网链接」命中链接列');
+  assert.equal(r.jobs[0].batch, '秋招', '「招聘类型」命中批次列');
+  assert.equal(r.jobs[0].city, '北上广深', '「工作地点」命中城市列');
+  assert.equal(r.jobs[0].deadlineRaw, '未明确尽快投');
 });
 
 // ===== 岗位库（岗位源：腾讯智能表格；jobs.json 落在临时 ATS_STATUS_HOME）=====
