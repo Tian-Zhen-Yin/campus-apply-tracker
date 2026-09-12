@@ -174,6 +174,13 @@
   .t-high { background: var(--red-soft); color: #b94747; border-color: #f0c8c8; }
   .chips { display: flex; flex-wrap: wrap; gap: 6px; }
   .chip { background: #f0f2f5; border: 1px solid #d9dee7; border-radius: 8px; padding: 2px 9px; font-size: 12px; color: #59657a; }
+  /* 岗位源标签:图标+名称+元信息+行内小动作,同一形态;动作钮默认隐形,悬停点亮 */
+  .src-chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 6px 3px 10px; }
+  .src-chip strong { font-weight: 650; color: var(--ink); }
+  .src-meta { color: var(--muted); font-size: 11.5px; }
+  .chip-btn { min-height: 20px; padding: 0 6px !important; border-radius: 6px; font-size: 11px; color: var(--muted); background: none; border-color: transparent; }
+  .chip-btn:hover { transform: none; box-shadow: none; color: var(--primary); background: var(--soft); border-color: transparent; }
+  .chip-btn.danger:hover { color: #b94747; background: #fdeeee; }
   .chip.on { background: var(--green-soft); border-color: #bde7d5; color: #1d7a58; }
   .chip.off { background: var(--red-soft); border-color: #f0c8c8; color: #943434; }
   .row { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -1324,15 +1331,31 @@ async function saveJobEdit() {
 }
 // ===== 岗位源管理:pack(原厂,内置)+ 用户自助文档源(试读预览确认后添加,可移除) =====
 function renderJobSources() {
+  // 统一形态:图标+名称+元信息(条数+短时间)+行内小动作(悬停点亮);import 源(台账迁移)只读展示
   const srcs = (S.jobs || {}).sources || [];
   const cnt = (id) => ((S.jobs || {}).jobs || []).filter((j) => j.src === id).length;
-  const last = (s) => s.lastSync && !s.lastSync.error ? `上次 ${cn(s.lastSync.at)}` : (s.lastSync?.error ? `<span style="color:#b94747">失败</span>` : '未同步');
-  $('jobSources').innerHTML = srcs.map((s) => s.type === 'pack'
-    ? `<span class="chip" title="原厂策展岗位包,随版本更新;离线回落内置包">📦 原厂岗位包 · ${last(s)} <button class="act" style="margin-left:4px;padding:0 6px;font-size:11px" onclick="jobsSync('${s.id}')">↻</button></span>`
-    : s.type === 'manual'
-      ? `<span class="chip" title="识别投递网址 / 人工录入的岗位落点,只存本机">✏️ 手动收录 · ${cnt(s.id)} 条</span>`
-      : `<span class="chip" title="${esc(s.url)}">📄 ${esc(s.label || '文档源')} · ${last(s)} <button class="act" style="margin-left:4px;padding:0 6px;font-size:11px" title="同步此来源" onclick="jobsSync('${s.id}')">↻</button> <button class="act warn" style="padding:0 6px;font-size:11px" title="移除此来源(其岗位一并移除,标记保留)" onclick="removeJobSource('${s.id}','${esc(s.label || '')}')">✕</button></span>`
-  ).join('') + `<button class="act" style="min-height:26px;padding:0 10px;font-size:12px" onclick="openJobSourceOverlay()">＋ 添加文档源</button>`;
+  const lastShort = (s) => {
+    if (!s.lastSync) return '未同步';
+    if (s.lastSync.error) return '<span style="color:#b94747">同步失败</span>';
+    const d = new Date(s.lastSync.at);
+    const p2 = (n) => String(n).padStart(2, '0');
+    return `上次 ${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}`;
+  };
+  const btn = (label, title, fn, cls = '') => `<button class="act chip-btn ${cls}" title="${title}" onclick="${fn}">${label}</button>`;
+  $('jobSources').innerHTML = srcs.map((s) => {
+    const n = s.lastSync && s.lastSync.count != null ? s.lastSync.count : cnt(s.id);
+    const meta = `<span class="src-meta">${n} 条 · ${lastShort(s)}</span>`;
+    if (s.type === 'pack') {
+      return `<span class="chip src-chip" title="原厂策展岗位包，随版本更新；离线自动回落内置包"><span>📦</span><strong>原厂岗位包</strong>${meta}${btn('↻', '同步岗位包', `jobsSync('${s.id}')`)}</span>`;
+    }
+    if (s.type === 'manual') {
+      return `<span class="chip src-chip" title="插件识别 / 人工录入的岗位落点，只存本机"><span>✏️</span><strong>手动收录</strong><span class="src-meta">${n} 条</span></span>`;
+    }
+    if (s.type === 'import') {
+      return `<span class="chip src-chip" title="台账迁移导入的岗位库；重新迁移会整桶替换"><span>🗂</span><strong>${esc(s.label || '台账岗位库')}</strong><span class="src-meta">${n} 条</span></span>`;
+    }
+    return `<span class="chip src-chip" title="${esc(s.url || '')}"><span>📄</span><strong>${esc(s.label || '文档源')}</strong>${meta}${btn('↻', '同步此来源', `jobsSync('${s.id}')`)}${btn('✕', '移除此来源（岗位一并移除，标记保留）', `removeJobSource('${s.id}','${esc(s.label || '')}')`, 'danger')}</span>`;
+  }).join('') + `<button class="act act-sm" style="min-height:26px;padding:0 10px;font-size:12px" onclick="openJobSourceOverlay()">＋ 添加文档源</button>`;
 }
 function openJobSourceOverlay() {
   $('jsUrl').value = ''; $('jsPreview').innerHTML = ''; $('jsConfirmRow').style.display = 'none';
