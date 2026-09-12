@@ -79,6 +79,14 @@
     min-height: 42px; padding: 0 15px; font-weight: 650; font-size: 13.5px; transition: .18s ease;
   }
   .btn:hover, button.act:hover { transform: translateY(-1px); border-color: #ccd3e2; box-shadow: 0 5px 14px rgba(33, 45, 75, .08); }
+  /* 表格行内轻量动作:小号 soft/文字按钮,一行排布不折行不喧宾 */
+  .btn-row { display: inline-flex; align-items: center; gap: 2px; white-space: nowrap; }
+  button.act-sm { min-height: 24px; padding: 0 8px; border-radius: 8px; font-size: 12px; font-weight: 600; }
+  button.act-sm:hover { transform: none; box-shadow: none; }
+  button.act-sm.soft { background: var(--soft); border-color: transparent; color: var(--primary); }
+  button.act-sm.soft:hover { background: #e2e7ff; }
+  button.act-sm.text { background: none; border-color: transparent; color: var(--muted); }
+  button.act-sm.text:hover { color: var(--primary); background: var(--soft); }
   .btn-primary, button.act.pri { border-color: var(--primary); background: var(--primary); color: #fff; }
   .btn-primary:hover, button.act.pri:hover { background: var(--primary-dark); border-color: var(--primary-dark); }
   .btn-soft { background: var(--primary-soft); color: var(--primary-dark); border-color: transparent; }
@@ -972,11 +980,11 @@ function renderOverview() {
   const maxPage = Math.max(1, Math.ceil(rows.length / OV_PAGE_SIZE));
   if (ovPage > maxPage) ovPage = maxPage;
   const pageRows = rows.slice((ovPage - 1) * OV_PAGE_SIZE, ovPage * OV_PAGE_SIZE);
-  $('overview').innerHTML = `<table><thead><tr><th style="width:92px">公司</th><th>岗位</th><th style="width:96px">地点</th><th style="width:96px">状态</th><th style="width:104px">数据时间</th><th style="width:186px">操作</th></tr></thead><tbody>` +
+  $('overview').innerHTML = `<table><thead><tr><th style="width:92px">公司</th><th>岗位</th><th style="width:96px">地点</th><th style="width:96px">状态</th><th style="width:104px">数据时间</th><th style="width:168px">操作</th></tr></thead><tbody>` +
     pageRows.map((r) => {
       const i = ovRows.indexOf(r);
-      const acts = r.key && r.archived ? `<button class="act" onclick="ovUnarchive(${i})">取消归档</button>`
-        : `<span id="ov-act-${i}">${ovActs(i)}</span>`;
+      const acts = r.key && r.archived ? `<button class="act act-sm text" onclick="ovUnarchive(${i})">取消归档</button>`
+        : `<span class="btn-row" id="ov-act-${i}">${ovActs(i)}</span>`;
       const mails = mailByTarget.get(r.tk) || [];
       const full = r.job + (r.dept ? ` · ${r.dept}` : '');
       return `<tr${r.archived ? ' style="opacity:.55"' : ''}><td data-label="公司" style="white-space:nowrap">${esc(r.company)}${!r.key ? `<span class="dim" style="font-size:11px;margin-left:4px" title="记录来源：${esc(r.src)}">${esc(r.src)}</span>` : ''}</td><td data-label="岗位"><span class="ellip" style="max-width:430px" title="${esc(full)}"><strong>${esc(r.job)}</strong>${r.dept ? `<span class="dim"> · ${esc(r.dept)}</span>` : ''}</span>${r.corrected ? ' <span class="chip on" style="font-size:11px">✎已人工修正</span>' : ''}${r.archived ? ' <span class="chip off" style="font-size:11px">🗄已归档</span>' : ''}</td><td data-label="地点">${esc(r.city || '—')}</td><td data-label="状态">${badge(r.statusRaw)}</td><td data-label="数据时间" class="dim">${r.at ? ovTime(r.at) : esc(r.appliedAt || '—')}</td><td data-label="操作">${acts}</td></tr>`
@@ -986,9 +994,9 @@ function renderOverview() {
 const ovActs = (i) => {
   const r = ovRows[i];
   const next = ovAdvanceStep(r);
-  const adv = next ? `<button class="act pri" title="推进到「${next.label}」" onclick="ovAdvance(${i})">推进</button> ` : '';
-  if (r.key) return `${adv}<button class="act" onclick="ovToggleEdit(${i})">改</button> <button class="act" onclick="ovArchive(${i})">归档</button>`;
-  return `${adv}<button class="act" onclick="ovOpenEdit(${i})">编辑</button>`;
+  const adv = next ? `<button class="act act-sm soft" title="推进到「${next.label}」" onclick="ovAdvance(${i})">推进</button>` : '';
+  if (r.key) return `${adv}<button class="act act-sm text" title="人工修正状态（官网更新不覆盖）" onclick="ovToggleEdit(${i})">改</button><button class="act act-sm text" title="从默认视图隐藏，可恢复" onclick="ovArchive(${i})">归档</button>`;
+  return `${adv}<button class="act act-sm text" title="编辑这条投递记录" onclick="ovOpenEdit(${i})">编辑</button>`;
 };
 // 推进阶梯按五档桶走(参考投递管理台账):每点一次跨一个用户可见的状态;细分级(已查看/复试/HR面)留给「编辑/改」下拉
 const OV_LADDER = [
@@ -1051,7 +1059,7 @@ function ovToggleEdit(i) {
   const r = ovRows[i];
   const cell = document.getElementById(`ov-act-${i}`);
   if (!cell) return;
-  cell.innerHTML = `<select id="ov-status-${i}">${statusOptions()}</select> <button class="act pri" onclick="ovSave(${i})">保存</button> ${r.corrected ? `<button class="act" onclick="ovReset(${i})">还原官网</button> ` : ''}<button class="act" onclick="ovCloseEdit(${i})">收起</button>`;
+  cell.innerHTML = `<select id="ov-status-${i}" style="min-height:26px;padding:2px 6px;font-size:12.5px">${statusOptions()}</select> <button class="act act-sm soft" onclick="ovSave(${i})">保存</button> ${r.corrected ? `<button class="act act-sm text" onclick="ovReset(${i})">还原官网</button> ` : ''}<button class="act act-sm text" onclick="ovCloseEdit(${i})">收起</button>`;
   const sel = document.getElementById(`ov-status-${i}`);
   // 记录的归一码与选项码不完全同名（INTERVIEW→INTERVIEW1、EXAM→TEST），对不上落 UNKNOWN
   const want = ({ INTERVIEW: 'INTERVIEW1', EXAM: 'TEST' })[r.status] || r.status || 'UNKNOWN';
