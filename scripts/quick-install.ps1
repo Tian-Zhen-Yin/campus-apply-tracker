@@ -15,21 +15,27 @@ if ($PSVersionTable.PSVersion.Major -lt 5) { Fail "需要 Windows PowerShell 5+�
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) { Fail "未找到 git——先安装：https://git-scm.com/download/win" }
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) { Fail "未找到 Node.js（需 ≥18）——先安装：https://nodejs.org/zh-cn 下载 LTS 版" }
 
+# 全程匿名拉取公开仓库:禁掉一切凭证来源(GUI 凭证管理器/终端提示/askpass),绝不弹账号密码框
+$env:GIT_TERMINAL_PROMPT = '0'
+$env:GIT_ASKPASS = 'echo'
+$GitAnon = @('-c', 'credential.helper=')
+
 $MainUrl = 'https://gitee.com/YinTianZheng/campus-apply-tracker.git'
 $MainUrlFallback = 'https://github.com/Tian-Zhen-Yin/campus-apply-tracker.git'
-$TrackerUrl = 'https://gitee.com/YinTianZheng/campus-recruitment-tracker.git'
-$TrackerUrlFallback = 'https://github.com/Tian-Zhen-Yin/campus-recruitment-tracker.git'
+# 台账前端仓库目前只在 GitHub:gitee 同名地址不存在,git 会因它请求凭证——必须主走 GitHub
+$TrackerUrl = 'https://github.com/Tian-Zhen-Yin/campus-recruitment-tracker.git'
+$TrackerUrlFallback = 'https://gitee.com/YinTianZheng/campus-recruitment-tracker.git'
 $RepoDir = "$HOME\campus-apply-tracker"
 
 function Clone-OrUpdate($url, $fallback, $dir, $extra) {
   if (Test-Path "$dir\.git") {
-    git -C $dir fetch --depth 1 origin master 2>$null
+    git @GitAnon -C $dir fetch --depth 1 origin master 2>$null
     if ($LASTEXITCODE -ne 0) { return $false }
-    git -C $dir reset --hard origin/master 2>$null
+    git @GitAnon -C $dir reset --hard origin/master 2>$null
     return ($LASTEXITCODE -eq 0)
   }
-  git clone --depth 1 @extra $url $dir 2>$null
-  if ($LASTEXITCODE -ne 0) { git clone --depth 1 @extra $fallback $dir 2>$null }
+  git @GitAnon clone --depth 1 @extra $url $dir 2>$null
+  if ($LASTEXITCODE -ne 0) { git @GitAnon clone --depth 1 @extra $fallback $dir 2>$null }
   return ($LASTEXITCODE -eq 0)
 }
 

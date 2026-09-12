@@ -14,20 +14,26 @@ NODE_BIN="$(command -v node || true)"
 [ -n "$NODE_BIN" ] || fail "未找到 Node.js（需 ≥18）——先执行: brew install node（或 https://nodejs.org 下载）"
 [ "$("$NODE_BIN" -p 'process.versions.node.split(".")[0]')" -ge 18 ] || fail "Node 版本过旧（$("$NODE_BIN" -v)），需要 ≥18——brew upgrade node"
 
+# 全程匿名拉取公开仓库:禁掉一切凭证来源,网络/仓库问题时快速失败回落,绝不弹账号密码框
+export GIT_TERMINAL_PROMPT=0
+export GIT_ASKPASS=echo
+GIT_ANON=(-c credential.helper=)
+
 MAIN_URL="https://gitee.com/YinTianZheng/campus-apply-tracker.git"
 MAIN_URL_FALLBACK="https://github.com/Tian-Zhen-Yin/campus-apply-tracker.git"
-TRACKER_URL="https://gitee.com/YinTianZheng/campus-recruitment-tracker.git"
-TRACKER_URL_FALLBACK="https://github.com/Tian-Zhen-Yin/campus-recruitment-tracker.git"
+# 台账前端仓库目前只在 GitHub:gitee 同名地址不存在,git 会因它请求凭证——必须主走 GitHub
+TRACKER_URL="https://github.com/Tian-Zhen-Yin/campus-recruitment-tracker.git"
+TRACKER_URL_FALLBACK="https://gitee.com/YinTianZheng/campus-recruitment-tracker.git"
 REPO_DIR="$HOME/campus-apply-tracker"
 
 clone_or_update() { # $1=url $2=fallback $3=dir $4=extra-clone-args...
   local url="$1" fallback="$2" dir="$3"; shift 3
   if [ -d "$dir/.git" ]; then
-    git -C "$dir" fetch --depth 1 origin master >/dev/null 2>&1 || return 1
-    git -C "$dir" reset --hard origin/master >/dev/null || return 1
+    git "${GIT_ANON[@]}" -C "$dir" fetch --depth 1 origin master >/dev/null 2>&1 || return 1
+    git "${GIT_ANON[@]}" -C "$dir" reset --hard origin/master >/dev/null || return 1
   else
-    git clone --depth 1 "$@" "$url" "$dir" >/dev/null 2>&1 || \
-      git clone --depth 1 "$@" "$fallback" "$dir" >/dev/null 2>&1 || return 1
+    git "${GIT_ANON[@]}" clone --depth 1 "$@" "$url" "$dir" >/dev/null 2>&1 || \
+      git "${GIT_ANON[@]}" clone --depth 1 "$@" "$fallback" "$dir" >/dev/null 2>&1 || return 1
   fi
 }
 
