@@ -115,9 +115,15 @@ export function normalizeCaptured(raw) {
   }
   const position = inferPosition(raw.pageText, proposed, Array.isArray(raw.headingTexts) ? raw.headingTexts : []);
   let company = knownCompany(raw.hostname) || tidy(raw.company);
-  if (!company || /^(?:官网|网站)$|BOSS直聘|猎聘|智联招聘|前程无忧|拉勾|牛客|实习僧|应届生求职网|招聘官网|招聘网站|校园招聘|社会招聘|应聘记录|申请记录/i.test(company)) {
+  if (!company || /^(?:官网|网站)$|BOSS直聘|猎聘|智联招聘|前程无忧|拉勾|牛客|实习僧|应届生求职网|招聘官网|招聘网站|校园招聘|社会招聘|应聘记录|申请记录|Moka|北森|Beisen|飞书招聘/i.test(company)) {
     const parts = tidy(raw.pageTitle).split(/[_|｜·-]/).map((item) => item.trim()).filter(Boolean);
-    company = parts.find((part) => part !== position && !/招聘|职位|官网|应聘|申请|BOSS|猎聘|智联|前程|拉勾|牛客|实习僧/.test(part)) || '';
+    company = parts.find((part) => part !== position && !/招聘|职位|官网|应聘|申请|BOSS|猎聘|智联|前程|拉勾|牛客|实习僧/i.test(part)) || '';
+    if (!company) {
+      // 整题剥通用后缀:「深信服内部推荐官网」「鹏芯微校园招聘」「XX招聘官网」——公司名就在剥完之后
+      const stripped = tidy(raw.pageTitle)
+        .replace(/(?:内部)?推荐官网|招聘(?:官网|门户|网站)?|校园招聘|官方招聘|人才招聘|加入我们|官网|人才网/g, '').trim();
+      if (stripped.length >= 2 && stripped.length <= 30 && stripped !== position && !/BOSS|猎聘|智联|前程|拉勾|牛客|实习僧|Moka|北森|飞书招聘/i.test(stripped)) company = stripped;
+    }
   }
   const cityRaw = tidy(raw.city || inferCity(`${raw.pageTitle}\n${raw.pageText}`, raw.hostname));
   const cityHit = CITIES.find((c) => cityRaw.includes(c)) || cityRaw; // 「北京市海淀区」→「北京」收敛到白名单简称
