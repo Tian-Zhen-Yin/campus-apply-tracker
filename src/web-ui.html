@@ -1211,7 +1211,7 @@ function renderJobList() {
     return;
   }
   const pager = pagerHtml('jobPage', 'renderJobList', rows.length, jobPage, maxPage);
-  $('jobList').innerHTML = `<table style="table-layout:fixed"><thead><tr><th style="width:136px">公司</th><th>岗位</th><th style="width:104px">截止</th><th style="width:92px">城市</th><th style="width:106px">内推</th><th style="width:84px">投递</th><th style="width:178px">标记</th><th style="width:52px" title="岗位内容最近一次更新日期（悬停看全日期）">更新</th></tr></thead><tbody>` +
+  $('jobList').innerHTML = `<table style="table-layout:fixed"><thead><tr><th style="width:136px">公司</th><th>岗位</th><th style="width:104px">截止</th><th style="width:92px">城市</th><th style="width:106px">内推</th><th style="width:84px">投递</th><th style="width:150px">标记</th><th style="width:52px" title="岗位内容最近一次更新日期（悬停看全日期）">更新</th></tr></thead><tbody>` +
     jobRows.map((r, i) => {
       // 截止=信号列：临近红色倒计时 / 正常日期原色 / 招满即止与无信息压到最弱
       let dl;
@@ -1268,7 +1268,7 @@ function renderJobList() {
         `${(S.jobs?.sources || []).some((s) => (s.type === 'manual' || s.type === 'import') && s.id === r.src) ? `<button class="act" style="min-height:28px;padding:0 8px" title="编辑（本机自有岗位源可直接修改）" onclick="openJobEdit(${i})">✎</button>` : ''}`,
         `<button class="act${r.m.star ? ' pri' : ''}" style="min-height:28px;padding:0 8px" title="关注" onclick="jobMark(${i},'star')">${r.m.star ? '★' : '☆'}</button>`,
         `<button class="act${r.m.applied ? ' pri' : ''}" style="min-height:28px;padding:0 8px" title="标记为已投递" onclick="jobMark(${i},'applied')">${r.m.applied ? '✓ 已投' : '已投'}</button>`,
-        `<button class="act${r.m.skip ? ' warn' : ''}" style="min-height:28px;padding:0 8px" title="不投：从默认列表隐藏（可在「已排除」里恢复）" onclick="jobMark(${i},'skip')">${r.m.skip ? '✗ 不投' : '不投'}</button>`,
+        `<button class="act${r.m.skip ? ' warn' : ''}" style="min-height:28px;padding:0 9px;font-size:13px" title="${r.m.skip ? '已排除：点击恢复到待投列表' : '不投：从默认列表隐藏（可在「已排除」里恢复）'}" onclick="jobMark(${i},'skip')">${r.m.skip ? '✗' : '×'}</button>`,
       ].join('');
       const link = r.link ? `<a class="panel-link" href="${esc(r.link)}" target="_blank" rel="noopener">去投递 ↗</a>` : '<span class="dim">—</span>';
       const upd = r.updatedAt ? `<span class="dim" style="opacity:.6;white-space:nowrap" title="${esc(r.updatedAt)}">${esc(String(r.updatedAt).slice(5, 10))}</span>` : '<span class="dim">—</span>';
