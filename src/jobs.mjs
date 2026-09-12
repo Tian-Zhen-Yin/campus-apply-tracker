@@ -515,6 +515,41 @@ export function setJobMark(id, patch) {
   return next;
 }
 
+// 编辑岗位条目:仅限本机自有源(manual 手动收录 / import 台账导入)——同步镜像源(doc/pack)整表替换,本机改了必被覆盖,拒绝
+export function updateJob(id, patch = {}) {
+  const st = readJobState();
+  const job = st.jobs.find((j) => j.id === id);
+  if (!job) throw new Error('岗位不存在（可能已被同步移除）');
+  const src = st.sources.find((s) => s.id === job.src);
+  if (!src || (src.type !== 'manual' && src.type !== 'import')) {
+    throw new Error('该岗位来自同步源（腾讯文档/岗位包），本机编辑会在下次同步时被覆盖——请直接修改上游表格');
+  }
+  if (patch.company !== undefined) {
+    const c = clean(patch.company);
+    if (!c) throw new Error('公司不能为空');
+    job.company = c;
+  }
+  if (patch.position !== undefined) {
+    const p = clean(patch.position);
+    if (!p) throw new Error('岗位不能为空');
+    job.position = p;
+  }
+  if (patch.city !== undefined) job.city = clean(patch.city);
+  if (patch.deadlineRaw !== undefined) {
+    const raw = clean(patch.deadlineRaw);
+    const d = parseDeadline(raw);
+    job.deadline = d;
+    job.deadlineRaw = d === raw ? '' : raw; // 标准日期无需存原文
+  }
+  if (patch.link !== undefined) job.link = normalizeUrl(patch.link);
+  for (const k of ['note', 'referralCode', 'referrer', 'batch']) {
+    if (patch[k] !== undefined) job[k] = clean(patch[k]);
+  }
+  job.updatedAt = nowIso();
+  saveJobState(st);
+  return job;
+}
+
 // 识别收录入库:岗位进「手动收录」源(src='manual'),同 id(公司|岗位|链接)重复收录=整行更新
 export function saveCapturedJob({ company, position, city, link }) {
   const st = readJobState();

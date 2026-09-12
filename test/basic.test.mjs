@@ -16,7 +16,7 @@ const { enrichMailRows, bindMail, unbindMail, candidatesFor } = await import(`${
 const { readApps, addJobMarkRecord, removeJobMarkRecord } = await import(`${SRC}apps.mjs`);
 const { appsFile } = await import(`${SRC}paths.mjs`);
 const { mailId, classifyMail, extractScheduleTip } = await import(`${SRC}mail.mjs`);
-const { parseDocUrl, stableJobId, parseDeadline, mapRowsToJobs, setJobMark, readJobState, saveJobState, buildJobPack, applyJobPack, readPackSource, evaluatePublish, recentJobs, removeDocSource, syncSource, extractCompany, saveCapturedJob } = await import(`${SRC}jobs.mjs`);
+const { parseDocUrl, stableJobId, parseDeadline, mapRowsToJobs, setJobMark, readJobState, saveJobState, buildJobPack, applyJobPack, readPackSource, evaluatePublish, recentJobs, removeDocSource, syncSource, extractCompany, saveCapturedJob, updateJob } = await import(`${SRC}jobs.mjs`);
 const { normalizeCaptured, inferCity } = await import(`${SRC}jobcapture.mjs`);
 const { importTrackerPayload, parseTrackerPayload } = await import(`${SRC}trackerMigrate.mjs`);
 
@@ -472,4 +472,41 @@ test('岗位库「已投」联动:落记录、去重、纯净回收、进展保�
   assert.equal(d2.removed, false, '无 origin 不在回收范围');
   assert.equal(readApps().length, 1);
   appsReset([]);
+});
+
+test('岗位编辑:updateJob 仅限本机自有源(manual/import),同步源拒绝;截止解析;id 与标记不动 (ADR-0007 语义延伸)', () => {
+  fs.rmSync(path.join(process.env.ATS_STATUS_HOME, 'jobs.json'), { force: true });
+  const st = {
+    version: 2,
+    sources: [
+      { id: 'doc', type: 'doc', url: 'https://docs.qq.com/smartsheet/X' },
+      { id: 'manual', type: 'manual' },
+      { id: 'tracker-import', type: 'import' },
+    ],
+    jobs: [
+      { id: 'j-doc', company: '文档公司', position: 'P', link: 'https://a/1', city: '', src: 'doc', updatedAt: '2026-09-01T00:00:00Z' },
+      { id: 'j-manual', company: '旧公司名', position: '测试工程师', link: 'https://a/2', city: '杭州', deadline: '', deadlineRaw: '招满即止', src: 'manual', note: '', referralCode: '', referrer: '', batch: '', updatedAt: '2026-09-01T00:00:00Z' },
+      { id: 'j-import', company: '迁移公司', position: '开发工程师', link: '', city: '', src: 'tracker-import', updatedAt: '2026-09-01T00:00:00Z' },
+    ],
+    marks: {},
+  };
+  saveJobState(st);
+  setJobMark('j-manual', { applied: true });
+
+  const u1 = updateJob('j-manual', { company: '新公司名', city: '上海', deadlineRaw: '2026-10-01', note: '内推走官网' });
+  assert.equal(u1.company, '新公司名');
+  assert.equal(u1.deadline, '2026-10-01', '标准日期归一化');
+  assert.equal(u1.deadlineRaw, '', '标准日期不存原文');
+  assert.ok(u1.updatedAt > '2026-09-01', 'updatedAt 刷新');
+  const st1 = readJobState();
+  assert.equal(st1.jobs.find((j) => j.id === 'j-manual').id, 'j-manual', 'id 不变');
+  assert.equal(st1.marks['j-manual'].applied, true, '标记保留');
+
+  const u2 = updateJob('j-import', { position: '资深开发工程师', deadlineRaw: '十月底' });
+  assert.equal(u2.deadline, '', '自由文本不强行解析');
+  assert.equal(u2.deadlineRaw, '十月底', '原文保留在 deadlineRaw');
+
+  assert.throws(() => updateJob('j-doc', { company: '改不动的' }), /同步源/, 'doc 源拒绝编辑');
+  assert.throws(() => updateJob('j-manual', { company: '' }), /公司不能为空/);
+  assert.throws(() => updateJob('nope', {}), /不存在/);
 });

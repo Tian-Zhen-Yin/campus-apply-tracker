@@ -19,7 +19,7 @@ import { startRecording, attachRecorder } from './capture.mjs';
 import { extractApplications } from './extract.mjs';
 import { chromium } from 'playwright';
 import { writeTrackerSync } from './trackerSync.mjs';
-import { readJobState, recentJobs, syncJobs, setJobMark, publishJobs, previewDocSource, addDocSource, removeDocSource, saveCapturedJob, openDocsLogin } from './jobs.mjs';
+import { readJobState, recentJobs, syncJobs, setJobMark, updateJob, publishJobs, previewDocSource, addDocSource, removeDocSource, saveCapturedJob, openDocsLogin } from './jobs.mjs';
 import { importTrackerPayload } from './trackerMigrate.mjs';
 import { notify } from './notify.mjs';
 import { applyToRecords, setCorrection, isValidStatus, readArchived, setArchived } from './corrections.mjs';
@@ -806,6 +806,15 @@ async function route(req, res, url) {
         }
         const marks = setJobMark(id, { applied: body.applied, skip: body.skip, star: body.star });
         return json(res, 200, { ok: true, marks, record });
+      } catch (e) { return json(res, 400, { error: String(e?.message || e) }); }
+    }
+    case '/api/jobs/update': {
+      const id = String(body.id || '');
+      if (!id) return json(res, 400, { error: '需要岗位 id' });
+      try {
+        const job = updateJob(id, body.patch || {});
+        log(`✏️ 已编辑岗位：${job.company}「${job.position}」`);
+        return json(res, 200, { ok: true });
       } catch (e) { return json(res, 400, { error: String(e?.message || e) }); }
     }
     case '/api/jobs/capture/save': {

@@ -518,6 +518,23 @@
   </div>
 </div>
 
+<div id="jobEditOverlay" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:60;align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:12px;padding:18px 20px;width:520px;max-width:94vw;max-height:90vh;overflow:auto">
+    <strong>✎ 编辑岗位</strong>
+    <p class="dim" style="margin:6px 0 0">手动收录 / 台账导入的岗位是本机自有数据，可直接修改；来自腾讯文档或岗位包的岗位不可编辑（下次同步会覆盖）。</p>
+    <input type="hidden" id="jeId">
+    <label class="f">公司</label><input type="text" id="jeCompany">
+    <label class="f">岗位</label><input type="text" id="jePosition">
+    <label class="f">城市（可留空）</label><input type="text" id="jeCity">
+    <label class="f">截止（YYYY-MM-DD 或原文如「招满即止」，可留空）</label><input type="text" id="jeDeadline">
+    <label class="f">链接</label><input type="text" id="jeLink">
+    <label class="f">内推码 / 联系人（可留空）</label>
+    <div class="row"><input type="text" id="jeRefCode" placeholder="内推码"><input type="text" id="jeReferrer" placeholder="联系人"></div>
+    <label class="f">备注</label><input type="text" id="jeNote">
+    <div class="row" style="margin-top:10px"><button class="act pri" onclick="saveJobEdit()">保存</button><button class="act" onclick="closeJobEditOverlay()">取消</button></div>
+  </div>
+</div>
+
 <script>
 let S = null;           // 最近一次 /api/state
 let pollTimer = null;
@@ -1067,7 +1084,7 @@ function renderJobList() {
     return;
   }
   const pager = pagerHtml('jobPage', 'renderJobList', rows.length, jobPage, maxPage);
-  $('jobList').innerHTML = `<table style="table-layout:fixed"><thead><tr><th style="width:136px">公司</th><th>岗位</th><th style="width:104px">截止</th><th style="width:92px">城市</th><th style="width:106px">内推</th><th style="width:84px">投递</th><th style="width:150px">标记</th><th style="width:52px" title="岗位内容最近一次更新日期（悬停看全日期）">更新</th></tr></thead><tbody>` +
+  $('jobList').innerHTML = `<table style="table-layout:fixed"><thead><tr><th style="width:136px">公司</th><th>岗位</th><th style="width:104px">截止</th><th style="width:92px">城市</th><th style="width:106px">内推</th><th style="width:84px">投递</th><th style="width:178px">标记</th><th style="width:52px" title="岗位内容最近一次更新日期（悬停看全日期）">更新</th></tr></thead><tbody>` +
     jobRows.map((r, i) => {
       // 截止=信号列：临近红色倒计时 / 正常日期原色 / 招满即止与无信息压到最弱
       let dl;
@@ -1092,6 +1109,7 @@ function renderJobList() {
         ? `<span class="chip on" style="font-size:11px;white-space:nowrap;cursor:pointer" title="点击复制${r.referrer ? ` · 联系人 ${r.referrer}` : ''}" onclick="jobCopyCode(${i})">${esc(code)}</span>`
         : (r.referrer ? `<span class="dim">${esc(r.referrer)}</span>` : '<span class="dim" style="opacity:.5">—</span>');
       const acts = [
+        `${(S.jobs?.sources || []).some((s) => (s.type === 'manual' || s.type === 'import') && s.id === r.src) ? `<button class="act" style="min-height:28px;padding:0 8px" title="编辑（本机自有岗位源可直接修改）" onclick="openJobEdit(${i})">✎</button>` : ''}`,
         `<button class="act${r.m.star ? ' pri' : ''}" style="min-height:28px;padding:0 8px" title="关注" onclick="jobMark(${i},'star')">${r.m.star ? '★' : '☆'}</button>`,
         `<button class="act${r.m.applied ? ' pri' : ''}" style="min-height:28px;padding:0 8px" title="标记为已投递" onclick="jobMark(${i},'applied')">${r.m.applied ? '✓ 已投' : '已投'}</button>`,
         `<button class="act${r.m.skip ? ' warn' : ''}" style="min-height:28px;padding:0 8px" title="不投：从默认列表隐藏（可在「已排除」里恢复）" onclick="jobMark(${i},'skip')">${r.m.skip ? '✗ 不投' : '不投'}</button>`,
@@ -1115,6 +1133,37 @@ async function jobMark(i, k) {
     }
   }
   catch (e) { toast(e.message); return; }
+  await refresh();
+}
+function openJobEdit(i) {
+  const r = jobRows[i];
+  if (!r) return;
+  $('jeId').value = r.id;
+  $('jeCompany').value = r.company || '';
+  $('jePosition').value = r.position || '';
+  $('jeCity').value = r.city || '';
+  $('jeDeadline').value = r.deadlineRaw || r.deadline || '';
+  $('jeLink').value = r.link || '';
+  $('jeRefCode').value = r.referralCode || '';
+  $('jeReferrer').value = r.referrer || '';
+  $('jeNote').value = r.note || '';
+  document.getElementById('jobEditOverlay').style.display = 'flex';
+}
+function closeJobEditOverlay() { document.getElementById('jobEditOverlay').style.display = 'none'; }
+async function saveJobEdit() {
+  try {
+    await api('/api/jobs/update', {
+      id: $('jeId').value,
+      patch: {
+        company: $('jeCompany').value.trim(), position: $('jePosition').value.trim(),
+        city: $('jeCity').value.trim(), deadlineRaw: $('jeDeadline').value.trim(),
+        link: $('jeLink').value.trim(), referralCode: $('jeRefCode').value.trim(),
+        referrer: $('jeReferrer').value.trim(), note: $('jeNote').value.trim(),
+      },
+    });
+    closeJobEditOverlay();
+    toast('已保存');
+  } catch (e) { toast(e.message); return; }
   await refresh();
 }
 // ===== 岗位源管理:pack(原厂,内置)+ 用户自助文档源(试读预览确认后添加,可移除) =====
