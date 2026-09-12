@@ -1268,7 +1268,7 @@ function renderJobList() {
         `${(S.jobs?.sources || []).some((s) => (s.type === 'manual' || s.type === 'import') && s.id === r.src) ? `<button class="act" style="min-height:28px;padding:0 8px" title="编辑（本机自有岗位源可直接修改）" onclick="openJobEdit(${i})">✎</button>` : ''}`,
         `<button class="act${r.m.star ? ' pri' : ''}" style="min-height:28px;padding:0 8px" title="关注" onclick="jobMark(${i},'star')">${r.m.star ? '★' : '☆'}</button>`,
         `<button class="act${r.m.applied ? ' pri' : ''}" style="min-height:28px;padding:0 8px" title="标记为已投递" onclick="jobMark(${i},'applied')">${r.m.applied ? '✓ 已投' : '已投'}</button>`,
-        `<button class="act${r.m.skip ? ' warn' : ''}" style="min-height:28px;padding:0 9px;font-size:13px" title="${r.m.skip ? '已排除：点击恢复到待投列表' : '不投：从默认列表隐藏（可在「已排除」里恢复）'}" onclick="jobMark(${i},'skip')">${r.m.skip ? '✗' : '×'}</button>`,
+        `<button class="act${r.m.skip ? ' warn' : ''}" style="min-height:28px;padding:0 9px;font-size:13px;${r.m.skip ? '' : 'color:var(--red);background:var(--red-soft);border-color:transparent;opacity:.6;'}" title="${r.m.skip ? '已排除：点击恢复到待投列表' : '不投：从默认列表隐藏（可在「已排除」里恢复）'}" onclick="jobMark(${i},'skip')">${r.m.skip ? '✗' : '×'}</button>`,
       ].join('');
       const link = r.link ? `<a class="panel-link" href="${esc(r.link)}" target="_blank" rel="noopener">去投递 ↗</a>` : '<span class="dim">—</span>';
       const upd = r.updatedAt ? `<span class="dim" style="opacity:.6;white-space:nowrap" title="${esc(r.updatedAt)}">${esc(String(r.updatedAt).slice(5, 10))}</span>` : '<span class="dim">—</span>';
