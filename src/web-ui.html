@@ -536,6 +536,19 @@
   </div>
 </div>
 
+<div id="ovEditOverlay" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:60;align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:12px;padding:18px 20px;width:480px;max-width:94vw;max-height:90vh;overflow:auto">
+    <strong>✎ 编辑投递记录</strong>
+    <p class="dim" style="margin:6px 0 0">手工登记 / 岗位库联动的记录在此修改；同步源（官网自动）的记录请用行内「改」做人工修正。</p>
+    <label class="f">公司</label><input type="text" id="oeCompany">
+    <label class="f">岗位</label><input type="text" id="oeJob">
+    <label class="f">状态</label><select id="oeStatus"></select>
+    <label class="f">投递时间（YYYY-MM-DD，可留空）</label><input type="text" id="oeAppliedAt">
+    <label class="f">链接</label><input type="text" id="oeLink">
+    <div class="row" style="margin-top:10px"><button class="act pri" onclick="ovEditSave()">保存</button><button class="act" onclick="closeOvEditOverlay()">取消</button></div>
+  </div>
+</div>
+
 <script>
 let S = null;           // 最近一次 /api/state
 let pollTimer = null;
@@ -550,7 +563,7 @@ function toast(m) { const t = $('toast'); t.textContent = m; t.classList.add('sh
 function normalize(raw) {
   const t = String(raw ?? '');
   const R = [
-    [/offer|录用|录取/i, 'OFFER'], [/不匹配|不合适|淘汰|未通过|拒绝|终止|释放|已挂/i, 'REJECTED'], [/面试/i, 'INTERVIEW'],
+    [/offer|录用|录取/i, 'OFFER'], [/不匹配|不合适|淘汰|未通过|拒绝|终止|释放|已挂/i, 'REJECTED'], [/一面|初面|二面|三面|复试|终面|HR面|人事面/i, 'INTERVIEW'], [/面试/i, 'INTERVIEW'],
     [/笔试/i, 'EXAM'], [/人才池|人才库/i, 'TALENT'], [/已查看|已读|已查阅/i, 'VIEWED'], [/已关闭|已结束|已取消|撤销|已入职|已完成|已处理/i, 'CLOSED'],
     [/筛选|评估|评审|审核|处理中|进行中|初筛|终筛/i, 'SCREENING'], [/投递|申请|提交|待处理|待查看|已接收|新简历/i, 'APPLIED'],
   ];
@@ -885,7 +898,7 @@ function renderOverview() {
       all.push({ company: s.label, key: s.key, ...r, tk: `site|${s.key}|${r.job}|${r.dept || ''}`, src: `${s.label}（自动）`, at });
     }
   }
-  for (const a of S.apps) all.push({ company: a.company, job: a.job, tk: `apps|${a.company}|${a.job}|`, statusRaw: a.statusRaw, appliedAt: a.appliedAt, city: a.city, src: a.origin === 'jobmark' ? '岗位库' : '手工', at: null });
+  for (const a of S.apps) all.push({ company: a.company, job: a.job, tk: `apps|${a.company}|${a.job}|`, statusRaw: a.statusRaw, status: a.status, appliedAt: a.appliedAt, city: a.city, src: a.origin === 'jobmark' ? '岗位库' : '手工', at: null });
   // 邮件挂载：已关联到具体记录的邮件按目标分组，挂在总览行下（未关联的在邮件面板处理）
   const mailByTarget = new Map();
   for (const m of ((S.mail || {}).recent || [])) {
@@ -931,11 +944,10 @@ function renderOverview() {
   const maxPage = Math.max(1, Math.ceil(rows.length / OV_PAGE_SIZE));
   if (ovPage > maxPage) ovPage = maxPage;
   const pageRows = rows.slice((ovPage - 1) * OV_PAGE_SIZE, ovPage * OV_PAGE_SIZE);
-  $('overview').innerHTML = `<table><thead><tr><th style="width:92px">公司</th><th>岗位</th><th style="width:96px">地点</th><th style="width:96px">状态</th><th style="width:104px">数据时间</th><th style="width:150px">操作</th></tr></thead><tbody>` +
+  $('overview').innerHTML = `<table><thead><tr><th style="width:92px">公司</th><th>岗位</th><th style="width:96px">地点</th><th style="width:96px">状态</th><th style="width:104px">数据时间</th><th style="width:186px">操作</th></tr></thead><tbody>` +
     pageRows.map((r) => {
       const i = ovRows.indexOf(r);
-      const acts = !r.key ? '<span class="dim">编辑 apps.json</span>'
-        : r.archived ? `<button class="act" onclick="ovUnarchive(${i})">取消归档</button>`
+      const acts = r.key && r.archived ? `<button class="act" onclick="ovUnarchive(${i})">取消归档</button>`
         : `<span id="ov-act-${i}">${ovActs(i)}</span>`;
       const mails = mailByTarget.get(r.tk) || [];
       const full = r.job + (r.dept ? ` · ${r.dept}` : '');
@@ -943,7 +955,74 @@ function renderOverview() {
         + (mails.length ? `<tr><td colspan="6" style="padding:2px 14px 10px;font-size:12px;color:#475569">${mails.map((m) => `📬 ${mailBadge(m.kind)} ${esc(m.subject)}${mailTip(m)} <span class="dim">${cn(m.at)}</span>`).join('<br>')}</td></tr>` : '');
     }).join('') + '</tbody></table>' + pagerHtml('ovPage', 'renderOverview', rows.length, ovPage, maxPage);
 }
-const ovActs = (i) => `<button class="act" onclick="ovToggleEdit(${i})">改</button> <button class="act" onclick="ovArchive(${i})">归档</button>`;
+const ovActs = (i) => {
+  const r = ovRows[i];
+  const next = ovAdvanceStep(r);
+  const adv = next ? `<button class="act pri" title="推进到「${next.label}」" onclick="ovAdvance(${i})">推进</button> ` : '';
+  if (r.key) return `${adv}<button class="act" onclick="ovToggleEdit(${i})">改</button> <button class="act" onclick="ovArchive(${i})">归档</button>`;
+  return `${adv}<button class="act" onclick="ovOpenEdit(${i})">编辑</button>`;
+};
+// 推进阶梯(参考投递管理台账):一步一格;match 是归一化码的等价集合(粗细码并存)
+const OV_LADDER = [
+  { code: 'APPLIED', label: '已投递', match: ['APPLIED'] },
+  { code: 'VIEWED', label: '已查看', match: ['VIEWED'] },
+  { code: 'SCREENING', label: '筛选中', match: ['SCREENING'] },
+  { code: 'TEST', label: '笔试', match: ['EXAM', 'TEST'] },
+  { code: 'INTERVIEW1', label: '面试中', match: ['INTERVIEW', 'INTERVIEW1'] },
+  { code: 'INTERVIEW2', label: '复试', match: ['INTERVIEW2'] },
+  { code: 'HRFACE', label: 'HR面', match: ['HRFACE'] },
+  { code: 'OFFER', label: 'Offer', match: ['OFFER'] },
+];
+const ovAdvanceStep = (r) => {
+  // 定位当前格:优先记录上的精确码(复试=INTERVIEW2);粗码(原文归一,把 复试/HR面 都归 INTERVIEW)只在精确码缺席时兜底
+  const step = (code) => OV_LADDER.findIndex((s) => s.match.includes(code));
+  let i = step(String(r.status || '').toUpperCase());
+  if (i < 0) i = step(ovCode(r));
+  return i >= 0 && i < OV_LADDER.length - 1 ? OV_LADDER[i + 1] : null;
+};
+async function ovAdvance(i) {
+  const r = ovRows[i];
+  const next = ovAdvanceStep(r);
+  if (!next) return;
+  try {
+    if (r.key) await api('/api/records/correct', { site: r.key, job: r.job, dept: r.dept || '', status: next.code });
+    else await api('/api/apps/update', { company: r.company, job: r.job, patch: { status: next.code } });
+    toast(`已推进到「${next.label}」${r.key ? '（人工修正，官网更新不覆盖）' : ''}`);
+  } catch (e) { toast(e.message); return; }
+  await refresh();
+}
+// apps 行编辑弹窗(公司/岗位/状态/投递时间/链接);打开时记录原身份键,改名后仍能定位保存
+let ovEditKey = null;
+function ovOpenEdit(i) {
+  const r = ovRows[i];
+  if (!r) return;
+  ovEditKey = { company: r.company, job: r.job };
+  $('oeCompany').value = r.company || '';
+  $('oeJob').value = r.job || '';
+  $('oeStatus').innerHTML = statusOptions();
+  const step = (code) => OV_LADDER.findIndex((s) => s.match.includes(code));
+  let rung = step(String(r.status || '').toUpperCase());
+  if (rung < 0) rung = step(ovCode(r));
+  $('oeStatus').value = rung >= 0 ? OV_LADDER[rung].code : (r.status || 'APPLIED');
+  $('oeAppliedAt').value = r.appliedAt || '';
+  $('oeLink').value = r.link || '';
+  document.getElementById('ovEditOverlay').style.display = 'flex';
+}
+function closeOvEditOverlay() { document.getElementById('ovEditOverlay').style.display = 'none'; }
+async function ovEditSave() {
+  try {
+    await api('/api/apps/update', {
+      company: ovEditKey.company, job: ovEditKey.job,
+      patch: {
+        company: $('oeCompany').value.trim(), job: $('oeJob').value.trim(),
+        status: $('oeStatus').value, appliedAt: $('oeAppliedAt').value.trim(), link: $('oeLink').value.trim(),
+      },
+    });
+    closeOvEditOverlay();
+    toast('已保存');
+  } catch (e) { toast(e.message); return; }
+  await refresh();
+}
 function ovToggleEdit(i) {
   const r = ovRows[i];
   const cell = document.getElementById(`ov-act-${i}`);

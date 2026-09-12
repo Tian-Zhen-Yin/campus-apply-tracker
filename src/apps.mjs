@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import { appsFile } from './paths.mjs';
 import { readJson, writeJson, nowIso, pad } from './util.mjs';
 import { normalizeStatus } from './extract.mjs';
+import { STATUS_LABELS } from './corrections.mjs';
 
 // 手工投递列表：六家自动抓取之外的公司在这里登记。
 // 文件即数据库（~/.ats-status/apps.json），想改直接编辑文件。
@@ -117,6 +118,34 @@ export function removeJobMarkRecord({ company, job }, isBound = false) {
   apps.splice(i, 1);
   writeJson(appsFile(), apps);
   return { removed: true, reason: 'pristine' };
+}
+
+// 编辑投递记录（总览「编辑/推进」落点，ADR-0007 的 apps 行动作）：按 公司|岗位 定位，可改名/改状态/改时间链接
+export function updateAppRecord({ company, job, patch = {} }) {
+  const apps = readApps();
+  const c = String(company || '').trim();
+  const j = String(job || '').trim();
+  const i = apps.findIndex((a) => String(a.company || '').trim() === c && String(a.job || '').trim() === j);
+  if (i < 0) throw new Error('投递记录不存在');
+  const rec = apps[i];
+  const nc = patch.company !== undefined ? String(patch.company).trim() : rec.company;
+  const nj = patch.job !== undefined ? String(patch.job).trim() : rec.job;
+  if (!nc || !nj) throw new Error('公司与岗位不能为空');
+  if (apps.some((a, k) => k !== i && String(a.company || '').trim() === nc && String(a.job || '').trim() === nj)) {
+    throw new Error('已存在同公司同岗位的记录');
+  }
+  rec.company = nc;
+  rec.job = nj;
+  if (patch.status) {
+    const label = STATUS_LABELS[patch.status];
+    if (!label) throw new Error('未知状态码');
+    rec.status = patch.status;
+    rec.statusRaw = label;
+  }
+  if (patch.appliedAt !== undefined) rec.appliedAt = String(patch.appliedAt || '').trim();
+  if (patch.link !== undefined) rec.link = String(patch.link || '').trim();
+  writeJson(appsFile(), apps);
+  return rec;
 }
 
 export async function importApps(source) {

@@ -126,6 +126,7 @@ export function normalizeStatus(raw) {
   const RULES = [
     [/offer|录用|录取/i, 'OFFER'],
     [/不匹配|不合适|淘汰|未通过|拒绝|终止|释放|已挂/i, 'REJECTED'],
+    [/一面|初面|二面|三面|复试|终面|HR面|人事面/i, 'INTERVIEW'],
     [/面试/i, 'INTERVIEW'],
     [/笔试/i, 'EXAM'],
     [/人才池|人才库/i, 'TALENT'],

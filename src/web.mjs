@@ -8,7 +8,7 @@ import { SITES, SITE_KEYS, saveSiteOverride, saveCustomSite, deleteCustomSite, g
 import { openLoginSession } from './login.mjs';
 import { HOME, profileDir, capturedFile, metaFile, outFile, dashboardFile, historyFile, rawFile } from './paths.mjs';
 import { readJson, writeJson } from './util.mjs';
-import { readApps, importFromText, addJobMarkRecord, removeJobMarkRecord } from './apps.mjs';
+import { readApps, importFromText, addJobMarkRecord, removeJobMarkRecord, updateAppRecord } from './apps.mjs';
 import { status } from './status.mjs';
 import { keepalive } from './keepalive.mjs';
 import { report } from './report.mjs';
@@ -806,6 +806,13 @@ async function route(req, res, url) {
         }
         const marks = setJobMark(id, { applied: body.applied, skip: body.skip, star: body.star });
         return json(res, 200, { ok: true, marks, record });
+      } catch (e) { return json(res, 400, { error: String(e?.message || e) }); }
+    }
+    case '/api/apps/update': {
+      try {
+        const rec = updateAppRecord({ company: body.company, job: body.job, patch: body.patch || {} });
+        log(`✏️ 已编辑投递记录：${rec.company}「${rec.job}」→ ${rec.statusRaw}`);
+        return json(res, 200, { ok: true });
       } catch (e) { return json(res, 400, { error: String(e?.message || e) }); }
     }
     case '/api/jobs/update': {

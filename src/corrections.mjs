@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import { correctionsFile } from './paths.mjs';
 
-const STATUS_LABELS = {
+export const STATUS_LABELS = {
   APPLIED: '已投递', VIEWED: '已查看', SCREENING: '筛选中', TEST: '笔试',
   INTERVIEW1: '面试中', INTERVIEW2: '复试', HRFACE: 'HR面', OFFER: 'Offer',
   CLOSED: '已结束', REJECTED: '不合适', TALENT: '人才池', UNKNOWN: '未知',

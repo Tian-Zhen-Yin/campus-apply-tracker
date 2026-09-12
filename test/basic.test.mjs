@@ -13,7 +13,7 @@ const { mergePageHits } = await import(`${SRC}status.mjs`);
 const { recordKey, extractApplications, normalizeStatus } = await import(`${SRC}extract.mjs`);
 const { setCorrection, setArchived, applyToRecords, readCorrections, readArchived } = await import(`${SRC}corrections.mjs`);
 const { enrichMailRows, bindMail, unbindMail, candidatesFor } = await import(`${SRC}maillinks.mjs`);
-const { readApps, addJobMarkRecord, removeJobMarkRecord } = await import(`${SRC}apps.mjs`);
+const { readApps, addJobMarkRecord, removeJobMarkRecord, updateAppRecord } = await import(`${SRC}apps.mjs`);
 const { appsFile } = await import(`${SRC}paths.mjs`);
 const { mailId, classifyMail, extractScheduleTip } = await import(`${SRC}mail.mjs`);
 const { parseDocUrl, stableJobId, parseDeadline, mapRowsToJobs, setJobMark, readJobState, saveJobState, buildJobPack, applyJobPack, readPackSource, evaluatePublish, recentJobs, removeDocSource, syncSource, extractCompany, saveCapturedJob, updateJob } = await import(`${SRC}jobs.mjs`);
@@ -509,4 +509,24 @@ test('岗位编辑:updateJob 仅限本机自有源(manual/import),同步源拒�
   assert.throws(() => updateJob('j-doc', { company: '改不动的' }), /同步源/, 'doc 源拒绝编辑');
   assert.throws(() => updateJob('j-manual', { company: '' }), /公司不能为空/);
   assert.throws(() => updateJob('nope', {}), /不存在/);
+});
+
+test('总览编辑/推进:updateAppRecord 按 公司|岗位 定位改名改状态,撞车拒绝;归一化识别 一面/二面/复试/HR面', () => {
+  fs.writeFileSync(appsFile(), JSON.stringify([
+    { company: '米哈游', job: '大模型算法工程师', statusRaw: '一面', status: '' },
+    { company: '腾讯', job: '后端开发工程师', statusRaw: '已投递', status: 'APPLIED' },
+  ]), 'utf8');
+  const rec = updateAppRecord({ company: '米哈游', job: '大模型算法工程师', patch: { status: 'INTERVIEW2' } });
+  assert.equal(rec.statusRaw, '复试');
+  assert.equal(rec.status, 'INTERVIEW2');
+  const renamed = updateAppRecord({ company: '米哈游', job: '大模型算法工程师', patch: { company: '米哈游', job: 'AI 平台工程师', appliedAt: '2026-09-12' } });
+  assert.equal(renamed.job, 'AI 平台工程师');
+  assert.equal(renamed.origin, undefined, '编辑不注入 origin');
+  assert.throws(() => updateAppRecord({ company: '米哈游', job: 'AI 平台工程师', patch: { job: '后端开发工程师', company: '腾讯' } }), /已存在同公司同岗位/);
+  assert.throws(() => updateAppRecord({ company: '不存在', job: 'x', patch: {} }), /不存在/);
+  assert.throws(() => updateAppRecord({ company: '米哈游', job: 'AI 平台工程师', patch: { status: 'NOPE' } }), /未知状态码/);
+  assert.equal(normalizeStatus('一面'), 'INTERVIEW');
+  assert.equal(normalizeStatus('二面'), 'INTERVIEW');
+  assert.equal(normalizeStatus('复试'), 'INTERVIEW');
+  assert.equal(normalizeStatus('HR面'), 'INTERVIEW');
 });
