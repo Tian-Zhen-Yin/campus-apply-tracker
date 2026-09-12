@@ -1231,10 +1231,39 @@ function renderJobList() {
           : `<span class="chip" style="font-size:11px;white-space:nowrap;opacity:.75" title="${esc(r.batch)}">${esc(short)}</span>`);
       }
       const badgeRow = badges.length ? `<span style="display:flex;gap:4px;flex-wrap:wrap;margin-top:3px">${badges.join('')}</span>` : '';
+      // 内推链接(用户口径):列表不展示裸码——链接已含内推参数的原链接即内推链接;
+      // 干净链接有码按域名参数表拼(hash 路由与 query 均支持),表外默认 recommendCode;
+      // 链接是自由文本/缺失但有码的,回退显示码+复制
       const code = String(r.referralCode || '').replace(/^内推码[:：]?\s*/, '').trim();
-      const refCell = code
-        ? `<span class="chip on" style="font-size:11px;white-space:nowrap;cursor:pointer" title="点击复制${r.referrer ? ` · 联系人 ${r.referrer}` : ''}" onclick="jobCopyCode(${i})">${esc(code)}</span>`
-        : (r.referrer ? `<span class="dim">${esc(r.referrer)}</span>` : '<span class="dim" style="opacity:.5">—</span>');
+      const hasCodeParam = (qs) => /(?:^|&)([^=&]*code[^=&]*|refer[^=&]*)=/i.test(qs ? `?${qs}` : '');
+      const refUrl = (() => {
+        if (!code) return null;
+        const raw = String(r.link || '').trim();
+        if (!/^https?:\/\//i.test(raw)) return null;
+        try {
+          const u = new URL(raw);
+          if (hasCodeParam(u.search.replace(/^\?/, '')) || (u.hash.includes('?') && hasCodeParam(u.hash.split('?')[1] || ''))) return u.href;
+          const paramName = /mokahr\.com$/.test(u.hostname) ? 'recommendCode'
+            : /\.163\.com$/.test(u.hostname) ? 'referralCode'
+            : /xiaohongshu\.com$/.test(u.hostname) ? 'referer_code'
+            : /fandow\.com$/.test(u.hostname) ? 'pushCode'
+            : 'recommendCode';
+          if (u.hash.includes('?')) {
+            const [path, qs] = u.hash.split('?');
+            const sp = new URLSearchParams(qs || '');
+            sp.set(paramName, code);
+            u.hash = `${path}?${sp.toString()}`;
+          } else {
+            u.searchParams.set(paramName, code);
+          }
+          return u.href;
+        } catch { return null; }
+      })();
+      const refCell = refUrl
+        ? `<a class="chip on" style="font-size:11px;white-space:nowrap;text-decoration:none" href="${esc(refUrl)}" target="_blank" rel="noopener" title="内推链接：${esc(refUrl)}${code ? `\n内推码：${esc(code)}` : ''}${r.referrer ? `\n联系人：${esc(r.referrer)}` : ''}">内推 ↗</a>`
+        : code
+          ? `<span class="chip on" style="font-size:11px;white-space:nowrap;cursor:pointer" title="无有效链接，点击复制内推码${r.referrer ? ` · 联系人 ${esc(r.referrer)}` : ''}" onclick="jobCopyCode(${i})">${esc(code)}</span>`
+          : (r.referrer ? `<span class="dim">${esc(r.referrer)}</span>` : '<span class="dim" style="opacity:.5">—</span>');
       const acts = [
         `${(S.jobs?.sources || []).some((s) => (s.type === 'manual' || s.type === 'import') && s.id === r.src) ? `<button class="act" style="min-height:28px;padding:0 8px" title="编辑（本机自有岗位源可直接修改）" onclick="openJobEdit(${i})">✎</button>` : ''}`,
         `<button class="act${r.m.star ? ' pri' : ''}" style="min-height:28px;padding:0 8px" title="关注" onclick="jobMark(${i},'star')">${r.m.star ? '★' : '☆'}</button>`,
