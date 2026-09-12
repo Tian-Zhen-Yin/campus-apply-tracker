@@ -866,10 +866,6 @@ function renderSites() {
 }
 
 // 概览统计与状态分布（纯展示：由 renderOverview 的 rows 派生）
-const STATUS_META = [
-  ['APPLIED', '已投递'], ['VIEWED', '已查看'], ['SCREENING', '筛选中'], ['EXAM', '笔试'], ['INTERVIEW', '面试中'],
-  ['OFFER', 'Offer'], ['TALENT', '人才池'], ['REJECTED', '不合适'], ['CLOSED', '已结束'], ['UNKNOWN', '未知'],
-];
 function renderStatCards(rows) {
   const code = (r) => normalize(r.statusRaw);
   $('statTotal').textContent = rows.length;
@@ -880,8 +876,8 @@ function renderStatCards(rows) {
   $('statMail').textContent = ((S.mail || {}).recent || []).length;
 }
 function renderDist(rows) {
-  // 用户视角五档桶(真实反馈):已查看/筛选中并入已投递,不合适/人才池并入已结束
-  const order = ['已投递', '笔试', '面试中', 'Offer', '已结束'];
+  // 用户视角七档桶(与筛选/编辑下拉同一套词汇):已投递/评估中/笔试/面试/HR面/Offer/已结束
+  const order = ['已投递', '评估中', '笔试', '面试', 'HR面', 'Offer', '已结束'];
   const counts = new Map(order.map((k) => [k, 0]));
   let unknown = 0;
   for (const r of rows) {
@@ -909,18 +905,27 @@ const ovIsFinal = (r) => OV_FINAL.includes(ovCode(r));
 const ovTime = (at) => { const d = new Date(at); const p2 = (n) => String(n).padStart(2, '0'); return `${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}`; };
 // 模糊搜索归一化(与「可能已投」同思路):去空白/常见中英文标点再小写,让「tabbitai」命中「Tabbit AI浏览器」
 const ovNorm = (s) => String(s || '').toLowerCase().replace(/[\s()（）【】\[\]·・,，。.、/\\\-—_#＃]+/g, '');
-// 用户视角的五档状态桶(真实反馈:不合适/人才池/已关闭对用户都是「已结束」;已查看/筛选中都是「已投递」):
-// 徽章与筛选按桶显示,原文悬停可见;「已结束」默认视图隐藏(等价归档,零数据改动)
+// 用户视角的统一状态词汇(真实反馈定稿):已投递/评估中/笔试/面试/HR面/Offer/已结束——筛选、徽章、编辑下拉同一套
+// 细分码映射进桶:已查看/筛选中→评估中;复试→面试;不合适/人才池→已结束。「已结束」默认视图隐藏(等价归档,零数据改动)
 const OV_BUCKET = {
-  APPLIED: '已投递', VIEWED: '已投递', SCREENING: '已投递',
+  APPLIED: '已投递',
+  VIEWED: '评估中', SCREENING: '评估中',
   EXAM: '笔试', TEST: '笔试',
-  INTERVIEW: '面试中', INTERVIEW1: '面试中', INTERVIEW2: '面试中', HRFACE: '面试中',
+  INTERVIEW: '面试', INTERVIEW1: '面试', INTERVIEW2: '面试',
+  HRFACE: 'HR面',
   OFFER: 'Offer',
   CLOSED: '已结束', REJECTED: '已结束', TALENT: '已结束',
 };
 const ovBucketOf = (r) => OV_BUCKET[ovCode(r)] || '未知';
 const OV_SETTLED = ['REJECTED', 'CLOSED', 'TALENT']; // 「已结束」桶的代码集合;Offer 不算——用户明确要看哪些是 Offer
 const ovIsSettled = (r) => OV_SETTLED.includes(ovCode(r));
+// 旧细分码 → 统一词汇码(记录上存的 status 可能是历史细码,选项层已不出现)
+const OV_CANON = { VIEWED: 'SCREENING', INTERVIEW: 'INTERVIEW1', INTERVIEW2: 'INTERVIEW1', TEST: 'TEST', REJECTED: 'CLOSED', TALENT: 'CLOSED' };
+const ovCanonCode = (r) => {
+  const raw = String(r.status || '').toUpperCase();
+  const c = OV_CANON[raw] || raw;
+  return c || ovCode(r);
+};
 function renderOverview() {
   const all = [];
   let nArchived = 0;
@@ -951,7 +956,7 @@ function renderOverview() {
   const curCompany = companySel.value, curStatus = statusSel.value;
   const companies = [...new Set(all.map((r) => r.company))].sort((a, b) => a.localeCompare(b, 'zh-CN'));
   companySel.innerHTML = `<option value="">全部公司（${companies.length} 家）</option>` + companies.map((c) => `<option value="${esc(c)}"${c === curCompany ? ' selected' : ''}>${esc(c)}</option>`).join('');
-  const BUCKETS = ['已投递', '笔试', '面试中', 'Offer', '已结束', '未知'];
+  const BUCKETS = ['已投递', '评估中', '笔试', '面试', 'HR面', 'Offer', '已结束', '未知'];
   statusSel.innerHTML = `<option value="">全部状态（进行中）</option>`
     + BUCKETS.map((b) => `<option value="${b}"${curStatus === b ? ' selected' : ''}>${b === '已结束' ? '已结束（含不合适 / 人才池）' : b}</option>`).join('');
   // 筛选 + 排序：非结束状态优先（稳定排序，组内保持原顺序）；「全部（含归档）」时归档行固定排在列表最末尾
@@ -998,11 +1003,13 @@ const ovActs = (i) => {
   if (r.key) return `${adv}<button class="act act-sm text" title="人工修正状态（官网更新不覆盖）" onclick="ovToggleEdit(${i})">改</button><button class="act act-sm text" title="从默认视图隐藏，可恢复" onclick="ovArchive(${i})">归档</button>`;
   return `${adv}<button class="act act-sm text" title="编辑这条投递记录" onclick="ovOpenEdit(${i})">编辑</button>`;
 };
-// 推进阶梯按五档桶走(参考投递管理台账):每点一次跨一个用户可见的状态;细分级(已查看/复试/HR面)留给「编辑/改」下拉
+// 推进阶梯与筛选/编辑同一套词汇:已投递→评估中→笔试→面试→HR面→Offer,每点一次走一格
 const OV_LADDER = [
-  { code: 'APPLIED', label: '已投递', match: ['APPLIED', 'VIEWED', 'SCREENING'] },
+  { code: 'APPLIED', label: '已投递', match: ['APPLIED'] },
+  { code: 'SCREENING', label: '评估中', match: ['SCREENING', 'VIEWED'] },
   { code: 'TEST', label: '笔试', match: ['EXAM', 'TEST'] },
-  { code: 'INTERVIEW1', label: '面试中', match: ['INTERVIEW', 'INTERVIEW1', 'INTERVIEW2', 'HRFACE'] },
+  { code: 'INTERVIEW1', label: '面试', match: ['INTERVIEW', 'INTERVIEW1', 'INTERVIEW2'] },
+  { code: 'HRFACE', label: 'HR面', match: ['HRFACE'] },
   { code: 'OFFER', label: 'Offer', match: ['OFFER'] },
 ];
 const ovAdvanceStep = (r) => {
@@ -1032,10 +1039,7 @@ function ovOpenEdit(i) {
   $('oeCompany').value = r.company || '';
   $('oeJob').value = r.job || '';
   $('oeStatus').innerHTML = statusOptions();
-  const step = (code) => OV_LADDER.findIndex((s) => s.match.includes(code));
-  let rung = step(String(r.status || '').toUpperCase());
-  if (rung < 0) rung = step(ovCode(r));
-  $('oeStatus').value = rung >= 0 ? OV_LADDER[rung].code : (r.status || 'APPLIED');
+  $('oeStatus').value = ovCanonCode(r) || 'APPLIED';
   $('oeAppliedAt').value = r.appliedAt || '';
   $('oeLink').value = r.link || '';
   document.getElementById('ovEditOverlay').style.display = 'flex';
@@ -1061,8 +1065,8 @@ function ovToggleEdit(i) {
   if (!cell) return;
   cell.innerHTML = `<select id="ov-status-${i}" style="min-height:26px;padding:2px 6px;font-size:12.5px">${statusOptions()}</select> <button class="act act-sm soft" onclick="ovSave(${i})">保存</button> ${r.corrected ? `<button class="act act-sm text" onclick="ovReset(${i})">还原官网</button> ` : ''}<button class="act act-sm text" onclick="ovCloseEdit(${i})">收起</button>`;
   const sel = document.getElementById(`ov-status-${i}`);
-  // 记录的归一码与选项码不完全同名（INTERVIEW→INTERVIEW1、EXAM→TEST），对不上落 UNKNOWN
-  const want = ({ INTERVIEW: 'INTERVIEW1', EXAM: 'TEST' })[r.status] || r.status || 'UNKNOWN';
+  // 旧细分码折算进统一词汇(INTERVIEW→面试、复试→面试、已查看→评估中、不合适/人才池→已结束)
+  const want = ovCanonCode(r) || 'UNKNOWN';
   sel.value = want;
   if (sel.value !== want) sel.value = 'UNKNOWN';
 }
@@ -1517,7 +1521,8 @@ async function testMail() {
   catch (e) { toast(e.message); }
 }
 function statusOptions() {
-  const choices = [['APPLIED','已投递'],['VIEWED','已查看'],['SCREENING','筛选中'],['TEST','笔试'],['INTERVIEW1','面试中'],['INTERVIEW2','复试'],['HRFACE','HR面'],['OFFER','Offer'],['CLOSED','已结束'],['REJECTED','不合适'],['TALENT','人才池'],['UNKNOWN','未知']];
+  // 与投递总览筛选同一套统一状态词汇(细分码在选项层不再出现)
+  const choices = [['APPLIED','已投递'],['SCREENING','评估中'],['TEST','笔试'],['INTERVIEW1','面试'],['HRFACE','HR面'],['OFFER','Offer'],['CLOSED','已结束'],['UNKNOWN','未知']];
   return choices.map(([v, t]) => `<option value="${v}">${t}</option>`).join('');
 }
 async function pollMailNow() { try { await api('/api/mail/poll', {}); toast('已开始拉取邮箱'); } catch (e) { toast(e.message); } await refresh(); }
