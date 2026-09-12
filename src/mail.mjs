@@ -125,12 +125,19 @@ function writeSeen(seen) {
   fs.writeFileSync(mailSeenFile(), JSON.stringify(seen));
 }
 
+export function countMailLog() {
+  try { return fs.readFileSync(mailLogFile(), 'utf8').trim().split('\n').filter(Boolean).length; } catch { return 0; }
+}
+
 export function readMailLog(limit = 30) {
   try {
     const lines = fs.readFileSync(mailLogFile(), 'utf8').trim().split('\n').filter(Boolean);
-    return lines.slice(-limit).reverse().map((l) => {
+    // 按邮件时间倒序(展示口径),不再依赖日志追加序——多账号/多轮拉取的追加序会互相交错
+    return lines.slice(-4000).map((l) => {
       try { const r = JSON.parse(l); return r.id ? r : { ...r, id: mailId(r) }; } catch { return null; }
-    }).filter(Boolean);
+    }).filter(Boolean)
+      .sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')))
+      .slice(0, limit);
   } catch { return []; }
 }
 
@@ -286,6 +293,8 @@ async function pollAccount(account, { days, limit }) {
   let freshRows = [];
   try {
     const since = new Date(Date.now() - days * 86400000);
+    // 全量收集窗口内邮件(IMAP 按时间升序返回,攒够 limit 就 break 会把最新的永远截在窗外=丢邮件),
+    // 超限时只保留最新的 limit 封再进入识别
     for await (const msg of client.fetch({ since }, { envelope: true, internalDate: true, uid: true })) {
       const env = msg.envelope || {};
       const from = (env.from && env.from[0]) || {};
@@ -296,8 +305,8 @@ async function pollAccount(account, { days, limit }) {
         subject: env.subject || '',
         uid: msg.uid,
       });
-      if (mails.length >= limit) break;
     }
+    if (mails.length > limit) mails = mails.slice(-limit);
     const seen = readSeen();
     for (const m of mails.slice().reverse()) { // 新的在前处理
       const key = `${account.user}|${m.uid}|${m.subject}`; // 账号前缀：不同邮箱的 uid 互不相干

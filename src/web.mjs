@@ -13,7 +13,7 @@ import { status } from './status.mjs';
 import { keepalive } from './keepalive.mjs';
 import { report } from './report.mjs';
 import { readFeishuConfig, feishuTest, feishuConfigFile } from './feishu.mjs';
-import { readMailConfig, readMailConfigs, saveMailConfigs, pollMail, testMailConnection, readMailLog, tipLine, PROVIDER_NOTES } from './mail.mjs';
+import { readMailConfig, readMailConfigs, saveMailConfigs, pollMail, testMailConnection, readMailLog, countMailLog, tipLine, PROVIDER_NOTES } from './mail.mjs';
 import { enrichMailRows, bindMail, unbindMail, hasMailBinding } from './maillinks.mjs';
 import { startRecording, attachRecorder } from './capture.mjs';
 import { extractApplications } from './extract.mjs';
@@ -416,12 +416,12 @@ function buildState() {
     mail: (() => {
       const accounts = readMailConfigs();
       const mask = (u) => String(u).replace(/^(.{3}).*(@.*)$/, '$1****$2');
-      const recent = enrichMailRows(readMailLog(15));
+      const recent = enrichMailRows(readMailLog(200));
       return {
         configured: accounts.length > 0,
         accounts: accounts.map(a => ({ user: a.user, userMasked: mask(a.user), provider: a.provider })),
         userMasked: accounts[0] ? mask(accounts[0].user) : '',
-        recent, lastAt: recent[0]?.at || null,
+        recent, total: countMailLog(), lastAt: recent[0]?.at || null,
       };
     })(),
     lastInspection,

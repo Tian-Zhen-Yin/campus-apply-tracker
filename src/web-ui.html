@@ -1497,8 +1497,10 @@ const mailTip = (n) => {
 function renderMail() {
   const recent = (S.mail || {}).recent || [];
   if (!recent.length) { $('mailBox').innerHTML = '<div class="card dim" style="margin:14px">还没有邮件通知——在下方「设置与帮手」里配置邮箱并拉取。</div>'; return; }
+  const more = S.mail && S.mail.total > recent.length ? `（仅展示最近 ${recent.length} 条，共 ${S.mail.total} 条）` : '';
   $('mailBox').innerHTML = `<table><thead><tr><th style="width:130px">时间</th><th style="width:90px">类型</th><th style="width:180px">来源</th><th>主题</th></tr></thead><tbody>` +
-    recent.map((n) => `<tr><td data-label="时间" class="dim">${cn(n.at)}</td><td data-label="类型">${mailBadge(n.kind)}</td><td data-label="来源">${esc(n.company)}</td><td data-label="主题">${esc(n.subject)}${mailTip(n)}${mailLinkLine(n)}</td></tr>`).join('') + '</tbody></table>';
+    recent.map((n) => `<tr><td data-label="时间" class="dim">${cn(n.at)}</td><td data-label="类型">${mailBadge(n.kind)}</td><td data-label="来源">${esc(n.company)}</td><td data-label="主题">${esc(n.subject)}${mailTip(n)}${mailLinkLine(n)}</td></tr>`).join('') + '</tbody></table>'
+    + (more ? `<div class="dim" style="padding:8px 14px;font-size:12px">${more}</div>` : '');
 }
 
 // ===== 邮件 ↔ 投递记录 关联交互（术语见 CONTEXT.md；只挂载不自动回写，ADR-0003）=====
