@@ -570,7 +570,11 @@ function normalize(raw) {
   for (const [re, k] of R) if (re.test(t)) return k;
   return 'UNKNOWN';
 }
-const badge = (raw) => `<span class="b b-${normalize(raw)}">${esc(raw || '未知')}</span>`;
+const badge = (raw) => {
+  const code = normalize(raw);
+  const label = OV_BUCKET[code] || '未知';
+  return `<span class="b b-${code}" title="${esc(raw || '未知')}">${label}</span>`;
+};
 
 async function api(path, body) {
   const res = await fetch(path, { method: body === undefined ? 'GET' : 'POST', headers: { 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -868,13 +872,22 @@ function renderStatCards(rows) {
   $('statMail').textContent = ((S.mail || {}).recent || []).length;
 }
 function renderDist(rows) {
-  const counts = new Map(STATUS_META.map(([k]) => [k, 0]));
-  for (const r of rows) { const k = normalize(r.statusRaw); counts.set(k, (counts.get(k) || 0) + 1); }
-  const max = Math.max(1, ...counts.values());
-  $('statusGrid').innerHTML = STATUS_META.map(([k, label]) => `
+  // 用户视角五档桶(真实反馈):已查看/筛选中并入已投递,不合适/人才池并入已结束
+  const order = ['已投递', '笔试', '面试中', 'Offer', '已结束'];
+  const counts = new Map(order.map((k) => [k, 0]));
+  let unknown = 0;
+  for (const r of rows) {
+    const b = OV_BUCKET[normalize(r.statusRaw)];
+    if (b) counts.set(b, counts.get(b) + 1);
+    else unknown += 1;
+  }
+  const bars = order.map((k) => [k, counts.get(k)]);
+  if (unknown) bars.push(['未知', unknown]);
+  const max = Math.max(1, ...bars.map(([, n]) => n));
+  $('statusGrid').innerHTML = bars.map(([k, n]) => `
     <div class="stage-cell" data-status="${k}">
-      <div class="stage-meta"><span>${label}</span><span>${counts.get(k)}</span></div>
-      <div class="bar"><div class="bar-fill" style="width:${Math.round((counts.get(k) || 0) / max * 100)}%"></div></div>
+      <div class="stage-meta"><span>${k}</span><span>${n}</span></div>
+      <div class="bar"><div class="bar-fill" style="width:${Math.round((n || 0) / max * 100)}%"></div></div>
     </div>`).join('');
 }
 
@@ -888,6 +901,18 @@ const ovIsFinal = (r) => OV_FINAL.includes(ovCode(r));
 const ovTime = (at) => { const d = new Date(at); const p2 = (n) => String(n).padStart(2, '0'); return `${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}`; };
 // 模糊搜索归一化(与「可能已投」同思路):去空白/常见中英文标点再小写,让「tabbitai」命中「Tabbit AI浏览器」
 const ovNorm = (s) => String(s || '').toLowerCase().replace(/[\s()（）【】\[\]·・,，。.、/\\\-—_#＃]+/g, '');
+// 用户视角的五档状态桶(真实反馈:不合适/人才池/已关闭对用户都是「已结束」;已查看/筛选中都是「已投递」):
+// 徽章与筛选按桶显示,原文悬停可见;「已结束」默认视图隐藏(等价归档,零数据改动)
+const OV_BUCKET = {
+  APPLIED: '已投递', VIEWED: '已投递', SCREENING: '已投递',
+  EXAM: '笔试', TEST: '笔试',
+  INTERVIEW: '面试中', INTERVIEW1: '面试中', INTERVIEW2: '面试中', HRFACE: '面试中',
+  OFFER: 'Offer',
+  CLOSED: '已结束', REJECTED: '已结束', TALENT: '已结束',
+};
+const ovBucketOf = (r) => OV_BUCKET[ovCode(r)] || '未知';
+const OV_SETTLED = ['REJECTED', 'CLOSED', 'TALENT']; // 「已结束」桶的代码集合;Offer 不算——用户明确要看哪些是 Offer
+const ovIsSettled = (r) => OV_SETTLED.includes(ovCode(r));
 function renderOverview() {
   const all = [];
   let nArchived = 0;
@@ -918,18 +943,21 @@ function renderOverview() {
   const curCompany = companySel.value, curStatus = statusSel.value;
   const companies = [...new Set(all.map((r) => r.company))].sort((a, b) => a.localeCompare(b, 'zh-CN'));
   companySel.innerHTML = `<option value="">全部公司（${companies.length} 家）</option>` + companies.map((c) => `<option value="${esc(c)}"${c === curCompany ? ' selected' : ''}>${esc(c)}</option>`).join('');
-  statusSel.innerHTML = `<option value="">全部状态</option><option value="active"${curStatus === 'active' ? ' selected' : ''}>进行中（非结束）</option><option value="final"${curStatus === 'final' ? ' selected' : ''}>已结束 / 终态</option>`
-    + STATUS_META.map(([k, t]) => `<option value="${k}"${curStatus === k ? ' selected' : ''}>${t}</option>`).join('');
+  const BUCKETS = ['已投递', '笔试', '面试中', 'Offer', '已结束', '未知'];
+  statusSel.innerHTML = `<option value="">全部状态（进行中）</option>`
+    + BUCKETS.map((b) => `<option value="${b}"${curStatus === b ? ' selected' : ''}>${b === '已结束' ? '已结束（含不合适 / 人才池）' : b}</option>`).join('');
   // 筛选 + 排序：非结束状态优先（稳定排序，组内保持原顺序）；「全部（含归档）」时归档行固定排在列表最末尾
   const curArch = $('ovArch').value;
   // 模糊搜索:空格分隔多词 AND,每词在 公司/岗位/部门/城市/状态/来源 的归一化拼接里子串命中
   // (先切词再逐词归一——归一化会去空格,顺序反了多词就被粘成一个词)
   const searchTerms = String($('ovSearch')?.value || '').split(/\s+/).map(ovNorm).filter(Boolean);
   const pass = (r) => (!curCompany || r.company === curCompany)
-    && (curStatus === 'active' ? !ovIsFinal(r) : curStatus === 'final' ? ovIsFinal(r) : curStatus ? ovCode(r) === curStatus : true)
+    && (!curStatus || ovBucketOf(r) === curStatus)
     && (!searchTerms.length || searchTerms.every((t) => ovNorm([r.company, r.job, r.dept, r.city, r.statusRaw, r.src].join(' ')).includes(t)));
-  const pool = curArch === 'only' ? all.filter((r) => r.archived) : activeAll;
-  const live = pool.filter(pass).sort((a, b) => (ovIsFinal(a) ? 1 : 0) - (ovIsFinal(b) ? 1 : 0));
+  // 「已结束」等价归档(用户视角):默认视图不出现,状态筛「已结束」或归档筛「全部」时可看;Offer 不隐藏
+  const hideSettled = curArch === '' && curStatus !== '已结束';
+  const pool = (curArch === 'only' ? all.filter((r) => r.archived) : activeAll).filter((r) => !hideSettled || !ovIsSettled(r));
+  const live = pool.filter(pass).sort((a, b) => (ovIsSettled(a) ? 1 : 0) - (ovIsSettled(b) ? 1 : 0));
   const archivedShown = curArch === 'all' ? all.filter((r) => r.archived && pass(r)) : [];
   const rows = curArch === 'all' ? [...live, ...archivedShown] : live;
   ovRows = rows;
@@ -962,15 +990,11 @@ const ovActs = (i) => {
   if (r.key) return `${adv}<button class="act" onclick="ovToggleEdit(${i})">改</button> <button class="act" onclick="ovArchive(${i})">归档</button>`;
   return `${adv}<button class="act" onclick="ovOpenEdit(${i})">编辑</button>`;
 };
-// 推进阶梯(参考投递管理台账):一步一格;match 是归一化码的等价集合(粗细码并存)
+// 推进阶梯按五档桶走(参考投递管理台账):每点一次跨一个用户可见的状态;细分级(已查看/复试/HR面)留给「编辑/改」下拉
 const OV_LADDER = [
-  { code: 'APPLIED', label: '已投递', match: ['APPLIED'] },
-  { code: 'VIEWED', label: '已查看', match: ['VIEWED'] },
-  { code: 'SCREENING', label: '筛选中', match: ['SCREENING'] },
+  { code: 'APPLIED', label: '已投递', match: ['APPLIED', 'VIEWED', 'SCREENING'] },
   { code: 'TEST', label: '笔试', match: ['EXAM', 'TEST'] },
-  { code: 'INTERVIEW1', label: '面试中', match: ['INTERVIEW', 'INTERVIEW1'] },
-  { code: 'INTERVIEW2', label: '复试', match: ['INTERVIEW2'] },
-  { code: 'HRFACE', label: 'HR面', match: ['HRFACE'] },
+  { code: 'INTERVIEW1', label: '面试中', match: ['INTERVIEW', 'INTERVIEW1', 'INTERVIEW2', 'HRFACE'] },
   { code: 'OFFER', label: 'Offer', match: ['OFFER'] },
 ];
 const ovAdvanceStep = (r) => {
