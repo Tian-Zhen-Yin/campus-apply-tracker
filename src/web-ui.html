@@ -345,7 +345,8 @@
             <option value="only">已归档</option>
             <option value="all">全部（含归档）</option>
           </select>
-          <span class="dim" id="ovFiltered" style="margin-left:auto"></span>
+          <input type="text" id="ovSearch" placeholder="模糊搜索：公司 / 岗位 / 部门 / 城市 / 状态（空格分隔多词）" style="max-width:300px;margin-left:auto" oninput="ovPage=1;renderOverview()">
+          <span class="dim" id="ovFiltered" style="margin-left:10px"></span>
         </div>
       </div>
       <div class="table-scroll" id="overview"></div>
@@ -872,6 +873,8 @@ const OV_FINAL = ['OFFER', 'REJECTED', 'CLOSED', 'TALENT']; // 终态（与统�
 const ovCode = (r) => normalize(r.statusRaw);
 const ovIsFinal = (r) => OV_FINAL.includes(ovCode(r));
 const ovTime = (at) => { const d = new Date(at); const p2 = (n) => String(n).padStart(2, '0'); return `${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}`; };
+// 模糊搜索归一化(与「可能已投」同思路):去空白/常见中英文标点再小写,让「tabbitai」命中「Tabbit AI浏览器」
+const ovNorm = (s) => String(s || '').toLowerCase().replace(/[\s()（）【】\[\]·・,，。.、/\\\-—_#＃]+/g, '');
 function renderOverview() {
   const all = [];
   let nArchived = 0;
@@ -906,8 +909,12 @@ function renderOverview() {
     + STATUS_META.map(([k, t]) => `<option value="${k}"${curStatus === k ? ' selected' : ''}>${t}</option>`).join('');
   // 筛选 + 排序：非结束状态优先（稳定排序，组内保持原顺序）；「全部（含归档）」时归档行固定排在列表最末尾
   const curArch = $('ovArch').value;
+  // 模糊搜索:空格分隔多词 AND,每词在 公司/岗位/部门/城市/状态/来源 的归一化拼接里子串命中
+  // (先切词再逐词归一——归一化会去空格,顺序反了多词就被粘成一个词)
+  const searchTerms = String($('ovSearch')?.value || '').split(/\s+/).map(ovNorm).filter(Boolean);
   const pass = (r) => (!curCompany || r.company === curCompany)
-    && (curStatus === 'active' ? !ovIsFinal(r) : curStatus === 'final' ? ovIsFinal(r) : curStatus ? ovCode(r) === curStatus : true);
+    && (curStatus === 'active' ? !ovIsFinal(r) : curStatus === 'final' ? ovIsFinal(r) : curStatus ? ovCode(r) === curStatus : true)
+    && (!searchTerms.length || searchTerms.every((t) => ovNorm([r.company, r.job, r.dept, r.city, r.statusRaw, r.src].join(' ')).includes(t)));
   const pool = curArch === 'only' ? all.filter((r) => r.archived) : activeAll;
   const live = pool.filter(pass).sort((a, b) => (ovIsFinal(a) ? 1 : 0) - (ovIsFinal(b) ? 1 : 0));
   const archivedShown = curArch === 'all' ? all.filter((r) => r.archived && pass(r)) : [];
