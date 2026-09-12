@@ -1342,14 +1342,12 @@ function renderJobSources() {
     return `上次 ${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}`;
   };
   const btn = (label, title, fn, cls = '') => `<button class="act chip-btn ${cls}" title="${title}" onclick="${fn}">${label}</button>`;
-  $('jobSources').innerHTML = srcs.map((s) => {
+  $('jobSources').innerHTML = srcs.filter((s) => s.type !== 'manual').map((s) => {
+    // 手动收录源不在源栏展示(用户口径):它是内建落点而非可管理的外部来源,岗位照常出现在列表
     const n = s.lastSync && s.lastSync.count != null ? s.lastSync.count : cnt(s.id);
     const meta = `<span class="src-meta">${n} 条 · ${lastShort(s)}</span>`;
     if (s.type === 'pack') {
       return `<span class="chip src-chip" title="原厂策展岗位包，随版本更新；离线自动回落内置包"><span>📦</span><strong>原厂岗位包</strong>${meta}${btn('↻', '同步岗位包', `jobsSync('${s.id}')`)}</span>`;
-    }
-    if (s.type === 'manual') {
-      return `<span class="chip src-chip" title="插件识别 / 人工录入的岗位落点，只存本机"><span>✏️</span><strong>手动收录</strong><span class="src-meta">${n} 条</span></span>`;
     }
     if (s.type === 'import') {
       return `<span class="chip src-chip" title="台账迁移导入的岗位库；重新迁移会整桶替换"><span>🗂</span><strong>${esc(s.label || '台账岗位库')}</strong><span class="src-meta">${n} 条</span></span>`;
