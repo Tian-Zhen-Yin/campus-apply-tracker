@@ -426,37 +426,40 @@
       </div>
       <div class="panel-body">
       <div class="settings-grid">
-        <div class="card" id="mailCard">
-          <div class="card-hd"><strong>邮箱监控</strong><span class="dim" id="mailState"></span></div>
-          <div class="chips" id="mailAccounts" style="margin:8px 0"></div>
-          <label class="f">邮箱服务商</label>
-          <select id="mailProvider" style="width:100%;margin-bottom:8px">
-            <option value="163">163 邮箱</option>
-            <option value="qq">QQ 邮箱</option>
-            <option value="gmail">Gmail</option>
-          </select>
-          <label class="f">邮箱账号（IMAP 官方授权拉取，可配置多个）</label>
-          <input type="text" id="mailUser" placeholder="xxx@163.com">
-          <label class="f">IMAP 授权码（不是登录密码；留空 = 沿用已保存的）</label>
-          <input type="password" id="mailPass" placeholder="">
-          <div class="row" style="margin-top:12px">
-            <button class="act pri" onclick="saveMailCfg()">保存 / 更新此邮箱</button>
-            <button class="act" onclick="testMail()">测试连接</button>
-            <button class="act" onclick="pollMailNow()">全部拉取</button>
+        <div class="card fold" id="mailCard">
+          <div class="card-hd" onclick="toggleCard(this.parentNode)"><strong>邮箱监控</strong><span class="help-ico" title="邮箱监控说明" onclick="event.stopPropagation();showHelp('mail')">ⓘ</span><span class="dim" id="mailState"></span><span class="fold-arrow">▸</span></div>
+          <div class="fold-body">
+            <div class="chips" id="mailAccounts" style="margin:8px 0"></div>
+            <label class="f">邮箱服务商</label>
+            <select id="mailProvider" style="width:100%;margin-bottom:8px">
+              <option value="163">163 邮箱</option>
+              <option value="qq">QQ 邮箱</option>
+              <option value="gmail">Gmail</option>
+            </select>
+            <label class="f">邮箱账号（IMAP 官方授权拉取，可配置多个）</label>
+            <input type="text" id="mailUser" placeholder="xxx@163.com">
+            <label class="f">IMAP 授权码（不是登录密码；留空 = 沿用已保存的）</label>
+            <input type="password" id="mailPass" placeholder="">
+            <div class="row" style="margin-top:12px">
+              <button class="act pri" onclick="saveMailCfg()">保存 / 更新此邮箱</button>
+              <button class="act" onclick="testMail()">测试连接</button>
+              <button class="act" onclick="pollMailNow()">全部拉取</button>
+            </div>
           </div>
-          <p class="dim" style="margin-bottom:0">开启方法：邮箱网页版设置里开启 IMAP 服务并生成授权码（163：设置→POP3/SMTP/IMAP；QQ：设置→账户）。可添加多个邮箱，每轮查询会全部拉取；笔试/面试邮件推送到飞书，邮件只存本机。</p>
         </div>
-        <div class="card">
-          <div class="card-hd"><strong>飞书推送</strong><span class="dim" id="fState"></span></div>
-          <label class="f">群机器人 webhook</label>
-          <input type="text" id="fHook" placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/xxxx">
-          <label class="f">签名密钥（没开签名就留空）</label>
-          <input type="password" id="fSecret" placeholder="留空 = 不变；填 skip = 清除">
-          <div class="row" style="margin-top:12px">
-            <button class="act pri" onclick="saveFeishu()">保存</button>
-            <button class="act" onclick="testFeishu()">发测试卡片</button>
+        <div class="card fold" id="feishuCard">
+          <div class="card-hd" onclick="toggleCard(this.parentNode)"><strong>飞书推送</strong><span class="dim" id="fState"></span><span class="fold-arrow">▸</span></div>
+          <div class="fold-body">
+            <label class="f">群机器人 webhook</label>
+            <input type="text" id="fHook" placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/xxxx">
+            <label class="f">签名密钥（没开签名就留空）</label>
+            <input type="password" id="fSecret" placeholder="留空 = 不变；填 skip = 清除">
+            <div class="row" style="margin-top:12px">
+              <button class="act pri" onclick="saveFeishu()">保存</button>
+              <button class="act" onclick="testFeishu()">发测试卡片</button>
+            </div>
+            <p class="dim" style="margin-bottom:0">有状态变化时往群里推卡片。建机器人：飞书群 → 设置 → 群机器人 → 自定义机器人。webhook 别外发。</p>
           </div>
-          <p class="dim" style="margin-bottom:0">有状态变化时往群里推卡片。建机器人：飞书群 → 设置 → 群机器人 → 自定义机器人。webhook 别外发。</p>
         </div>
         <div class="card fold">
           <div class="card-hd" onclick="toggleCard(this.parentNode)"><strong>定时任务</strong><span class="help-ico" title="定时任务说明" onclick="event.stopPropagation();showHelp('sched')">ⓘ</span><span class="dim" id="schedSum"></span><span class="fold-arrow">▸</span></div>
@@ -636,7 +639,7 @@ const badge = (raw) => {
 const HELP = {
   jobs: { t: '岗位库怎么工作', b: '你的岗位表在腾讯文档里维护，控制台只读同步：表里改了，点「同步」即更新。你的「已投/不投/关注」标记只存本机，重同步不丢；「已投」会同时记入投递总览。默认展示最近更新的 250 条，全量仍在库中。文档地址需为 docs.qq.com/smartsheet 且含 tab 参数。', g: ['#jobs', '图文指南 · 收录与岗位库'] },
   sites: { t: '登录与抓包', b: '登录 = 用你自己的账号扫码一次，之后工具像真人一样低频查询（深夜不查）。抓包 = 打开「我的投递」页让工具认识该网站的状态接口，用于没有预置的网站。', g: ['#follow', '图文指南 · 自动跟进'] },
-  mail: { t: '邮件通知', b: '笔试/面试邀约大多走邮件。用 IMAP 授权码拉取（授权码不是邮箱密码，在邮箱网页版设置里生成），只在本机读取，零风控风险；识别出的邀约会自动挂到对应投递下。', g: ['#mail', '图文指南 · 邮件邀约'] },
+  mail: { t: '邮件通知', b: '笔试/面试邀约大多走邮件。开启方法：邮箱网页版设置里开启 IMAP 服务并生成授权码（163：设置→POP3/SMTP/IMAP；QQ：设置→账户）——授权码不是登录密码。可添加多个邮箱，每轮查询会全部拉取；笔试/面试邮件推送到飞书，邮件只存本机，零风控风险。识别出的邀约会自动挂到对应投递下。', g: ['#mail', '图文指南 · 邮件邀约'] },
   sched: { t: '定时任务', b: '「查询+邮件定时」随控制台自动安装（工作日 9:30 / 14:30 / 20:00），装好后本页不用开着。「岗位包定时发布」为维护者可选：每日 12:00 / 21:30 自动同步文档→打包→推送，岗位数异常时自动拦截并通知。', g: ['#adv', '图文指南 · 进阶'] },
   data: { t: '数据位置', b: '所有数据只存在本机 ~/.ats-status 一个目录：官网抓取、岗位库、邮件、配置都在这里，不联网上传；卸载 = 删除目录。状态包 out/tracker-sync.json 供网页版台账读取。', g: ['#data', '图文指南 · 数据与备份'] },
   pack: { t: '发布岗位包', b: '维护者功能：把主文档源变成公开岗位包（同步→防呆检查→打包→推送仓库），普通用户点「同步」即拿最新。内推码默认剥离，永不外泄。', g: ['#jobs', '图文指南 · 收录与岗位库'] },
@@ -654,11 +657,26 @@ function showHelp(k) {
 }
 function closeHelp() { document.getElementById('helpOverlay').style.display = 'none'; }
 function toggleCard(card) {
+  card.dataset.user = '1'; // 用户手动开合后,refresh 的自动折叠不再覆盖此卡
   const body = card.querySelector('.fold-body');
   const open = body.style.display === 'none';
   body.style.display = open ? '' : 'none';
   const arr = card.querySelector('.fold-arrow');
   if (arr) arr.textContent = open ? '▾' : '▸';
+}
+// 已配置的配置卡自动折叠(未配置保持展开供首次填写);用户手动开合过的不动
+function syncCardFolds() {
+  const set = (id, collapse) => {
+    const card = document.getElementById(id);
+    if (!card || card.dataset.user === '1') return;
+    const body = card.querySelector('.fold-body');
+    if (!body) return;
+    body.style.display = collapse ? 'none' : '';
+    const arr = card.querySelector('.fold-arrow');
+    if (arr) arr.textContent = collapse ? '▸' : '▾';
+  };
+  set('mailCard', !!(S.mail && S.mail.configured));
+  set('feishuCard', !!(S.feishu && S.feishu.configured));
 }
 
 async function api(path, body) {
@@ -689,6 +707,7 @@ function render() {
   $('homeTxt').textContent = '全部数据在本机 ' + S.home + '（会话 profiles / 接口定义 / 查询结果 / 面板），不联网上传。';
   const dataSum = document.getElementById('dataSum');
   if (dataSum) dataSum.textContent = S.home;
+  syncCardFolds();
   renderAlerts();
   renderInspect();
   renderSites();
