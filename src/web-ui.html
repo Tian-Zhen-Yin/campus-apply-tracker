@@ -184,7 +184,8 @@
   /* ⓘ 帮助件 + 折叠卡:三层文字披露(常显一行/悬停/点开弹层) */
   .help-ico { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; margin-left: 5px; border-radius: 50%; border: 1px solid #c9d2e3; color: var(--muted); font-size: 10px; font-style: normal; cursor: pointer; vertical-align: 1px; }
   .help-ico:hover { color: var(--primary); border-color: var(--primary); }
-  .fold-arrow { color: var(--muted); font-size: 12px; margin-left: auto; }
+  .fold-arrow { margin-left: auto; min-width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; border-radius: 9px; background: var(--soft, #eef1fb); color: var(--primary); font-size: 15px; font-weight: 700; transition: background .15s ease; }
+  .card.fold > .card-hd:hover .fold-arrow { background: #e2e7ff; }
   .card.fold > .card-hd { cursor: pointer; }
   /* 投递总览公司名=官网跳转入口:加粗+右上角箭头,悬停点亮 */
   a.site-link { cursor: pointer; color: inherit; text-decoration: none; user-select: none; }
