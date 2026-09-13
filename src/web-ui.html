@@ -367,7 +367,9 @@
             <option value="all">全部（含归档）</option>
           </select>
           <input type="text" id="ovSearch" placeholder="搜索公司 / 岗位 / 部门 / 城市 / 状态" style="max-width:300px;margin-left:auto" oninput="ovPage=1;renderOverview()">
-          <button class="act act-sm" title="把当前筛选的投递总览导出为 JSON 文件" onclick="ovExport()">导出 JSON</button>
+          <input type="file" id="ovImportFile" accept=".json" style="display:none" onchange="ovImport(this)">
+          <button class="act act-sm" title="从导出的 JSON 恢复手工/岗位库投递记录（按 公司+岗位 幂等合并；官网自动行跳过）" onclick="document.getElementById('ovImportFile').click()">导入 JSON</button>
+          <button class="act act-sm" title="把全部投递总览数据（含官网自动行，仅作存档）导出为 JSON 文件" onclick="ovExport()">导出 JSON</button>
           <span class="dim" id="ovFiltered" style="margin-left:10px"></span>
         </div>
       </div>
@@ -909,6 +911,7 @@ function renderDist(rows) {
 }
 
 let ovRows = [];             // 当前展示的总览行（已按筛选与排序整理；按钮按索引回查，避免岗位名进 onclick 转义）
+let ovAll = [];              // 全量总览行（含归档，导出用）
 let ovArch = '';             // 归档筛选：'' 未归档 | 'only' 已归档 | 'all' 全部（含归档）
 let ovPage = 1;
 const OV_PAGE_SIZE = 20;
@@ -949,7 +952,8 @@ function renderOverview() {
       all.push({ company: s.label, key: s.key, ...r, tk: `site|${s.key}|${r.job}|${r.dept || ''}`, src: `${s.label}（自动）`, at });
     }
   }
-  for (const a of S.apps) all.push({ company: a.company, job: a.job, tk: `apps|${a.company}|${a.job}|`, statusRaw: a.statusRaw, status: a.status, appliedAt: a.appliedAt, city: a.city, src: a.origin === 'jobmark' ? '岗位库' : '手工', at: null });
+  for (const a of S.apps) all.push({ company: a.company, job: a.job, tk: `apps|${a.company}|${a.job}|`, statusRaw: a.statusRaw, status: a.status, appliedAt: a.appliedAt, city: a.city, link: a.link, src: a.origin === 'jobmark' ? '岗位库' : '手工', at: null });
+  ovAll = all; // 全量快照（导出用，含归档行）
   // 邮件挂载：已关联到具体记录的邮件按目标分组，挂在总览行下（未关联的在邮件面板处理）
   const mailByTarget = new Map();
   for (const m of ((S.mail || {}).recent || [])) {
@@ -1026,19 +1030,22 @@ async function ovSiteOpen(site) {
     toast('已在常驻浏览器打开官网投递状态（登录态保持）');
   } catch (e) { toast(e.message); }
 }
-// 导出当前筛选的投递总览为 JSON(客户端直接生成,不经后端)
+// 导出/导入投递总览 JSON:导出=全量快照(官网自动行标 type:'site',自有行标 'apps');
+// 导入=仅恢复自有行(apps),按 公司+岗位 幂等合并(复用 /api/import/tracker 的合并逻辑),官网自动行跳过
 function ovExport() {
-  if (!ovRows.length) { toast('当前筛选没有可导出的投递'); return; }
+  if (!ovAll.length) { toast('还没有可导出的投递数据'); return; }
   const data = {
     exportedAt: new Date().toISOString(),
-    count: ovRows.length,
-    records: ovRows.map((r) => ({
+    count: ovAll.length,
+    records: ovAll.map((r) => ({
+      type: r.key ? 'site' : 'apps',
       公司: r.company,
       岗位: r.job,
       部门: r.dept || '',
       城市: r.city || '',
       状态: r.statusRaw || '',
       投递时间: r.appliedAt || '',
+      链接: r.link || '',
       来源: r.src || '',
       数据时间: r.at || '',
       已人工修正: !!r.corrected,
@@ -1051,7 +1058,37 @@ function ovExport() {
   a.download = `投递总览-${new Date().toISOString().slice(0, 10)}.json`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-  toast(`已导出 ${data.count} 条（当前筛选结果）`);
+  toast(`已导出全部 ${data.count} 条（含官网自动 ${ovAll.filter((r) => r.key).length} 条，仅作存档）`);
+}
+async function ovImport(input) {
+  const file = input.files && input.files[0];
+  input.value = '';
+  if (!file) return;
+  let data;
+  try { data = JSON.parse(await file.text()); } catch { toast('JSON 解析失败——确认是导出的投递总览文件'); return; }
+  const rows = Array.isArray(data) ? data : (Array.isArray(data.records) ? data.records : null);
+  if (!rows) { toast('文件里没有 records 数组——不是投递总览导出的格式'); return; }
+  const mappable = [];
+  let skippedSite = 0, skippedBad = 0;
+  for (const r of rows) {
+    if (r.type === 'site' || /（自动）$/.test(String(r.来源 || r.src || ''))) { skippedSite += 1; continue; }
+    const company = String(r['公司'] ?? r.company ?? '').trim();
+    const job = String(r['岗位'] ?? r.position ?? '').trim();
+    if (!company || !job) { skippedBad += 1; continue; }
+    mappable.push({
+      company,
+      position: job,
+      stage: String(r['状态'] ?? r.stage ?? '已投递') || '已投递',
+      applicationDate: String(r['投递时间'] ?? r.applicationDate ?? ''),
+      applicationUrl: String(r['链接'] ?? r.applicationUrl ?? ''),
+    });
+  }
+  if (!mappable.length) { toast(`没有可导入的自有投递记录${skippedSite ? `（跳过官网自动记录 ${skippedSite} 条）` : ''}`); return; }
+  try {
+    const r = await api('/api/import/tracker', { payload: { records: mappable } });
+    toast(`导入完成：新增 ${r.recordsAdded}、更新 ${r.recordsUpdated}${skippedSite ? `；跳过官网自动记录 ${skippedSite} 条` : ''}${skippedBad ? `；无效 ${skippedBad} 条` : ''}`);
+  } catch (e) { toast(e.message); return; }
+  await refresh();
 }
 // 推进阶梯与筛选/编辑同一套词汇:已投递→评估中→笔试→面试→HR面→Offer,每点一次走一格
 const OV_LADDER = [
