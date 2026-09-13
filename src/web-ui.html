@@ -386,12 +386,12 @@
       <div class="panel-head">
         <div><h2 class="panel-title">岗位库</h2><div class="panel-caption" id="jobSyncCap">加载中…</div></div>
         <div class="row">
+          <button class="act" onclick="openJobSourcesOverlay()" title="查看与管理岗位来源（同步 / 移除 / 添加文档源）">📄 岗位源<span id="jobSrcCount" style="margin-left:4px"></span></button>
           <button class="btn" id="jobPublishBtn" style="display:none" onclick="jobsPublish()" title="维护者：同步文档→打包→提交并推送仓库（发布给所有用户）">🚀 发布岗位包</button>
           <button class="btn btn-primary" onclick="jobsSync()" title="从你的腾讯智能表格拉取最新岗位"><span class="icon">↻</span>同步岗位库</button>
         </div>
       </div>
       <div class="panel-body">
-        <div class="chips" id="jobSources" style="margin:0 0 10px"></div>
         <div class="chips" id="jobStats" style="margin:0 0 10px"></div>
         <div class="row" style="align-items:center">
           <!-- 搜索居行首,筛选 chips 统一靠右 -->
@@ -490,6 +490,18 @@
   <pre id="logs">（暂无）</pre>
 </div>
 <div class="toast" id="toast"></div>
+
+<div id="jobSourcesOverlay" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:70;align-items:center;justify-content:center" onclick="if(event.target===this)closeJobSourcesOverlay()">
+  <div style="background:#fff;border-radius:14px;padding:20px 22px;width:520px;max-width:92vw;max-height:86vh;overflow:auto">
+    <strong style="font-size:15px">岗位源</strong>
+    <p class="dim" style="margin:6px 0 4px">岗位来自这些来源；同步只更新对应来源，你的标记不受影响。</p>
+    <div id="jobSourcesList" style="margin-top:6px"></div>
+    <div class="row" style="margin-top:14px;align-items:center">
+      <button class="act act-sm" onclick="openJobSourceOverlay()">＋ 添加文档源</button>
+      <button class="act act-sm" style="margin-left:auto" onclick="closeJobSourcesOverlay()">完成</button>
+    </div>
+  </div>
+</div>
 
 <div id="helpOverlay" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:80;align-items:center;justify-content:center" onclick="if(event.target===this)closeHelp()">
   <div style="background:#fff;border-radius:14px;padding:20px 22px;width:440px;max-width:92vw">
@@ -1454,8 +1466,8 @@ async function saveJobEdit() {
 }
 // ===== 岗位源管理:pack(原厂,内置)+ 用户自助文档源(试读预览确认后添加,可移除) =====
 function renderJobSources() {
-  // 统一形态:图标+名称+元信息(条数+短时间)+行内小动作(悬停点亮);import 源(台账迁移)只读展示
-  const srcs = (S.jobs || {}).sources || [];
+  // 源管理收进弹窗(用户口径:chip 行割裂);manual 源内建不展示,import 源只读
+  const srcs = ((S.jobs || {}).sources || []).filter((s) => s.type !== 'manual');
   const cnt = (id) => ((S.jobs || {}).jobs || []).filter((j) => j.src === id).length;
   const lastShort = (s) => {
     if (!s.lastSync) return '未同步';
@@ -1464,20 +1476,28 @@ function renderJobSources() {
     const p2 = (n) => String(n).padStart(2, '0');
     return `上次 ${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}`;
   };
-  const btn = (label, title, fn, cls = '') => `<button class="act chip-btn ${cls}" title="${title}" onclick="${fn}">${label}</button>`;
-  $('jobSources').innerHTML = srcs.filter((s) => s.type !== 'manual').map((s) => {
-    // 手动收录源不在源栏展示(用户口径):它是内建落点而非可管理的外部来源,岗位照常出现在列表
+  const btn = (label, title, fn, cls = '') => `<button class="act act-sm" style="min-height:24px;padding:0 9px;font-size:12px" title="${title}" onclick="${fn}">${label}</button>`;
+  const countEl = document.getElementById('jobSrcCount');
+  if (countEl) countEl.textContent = srcs.length ? `· ${srcs.length}` : '';
+  const list = document.getElementById('jobSourcesList');
+  if (!list) return;
+  list.innerHTML = srcs.map((s) => {
     const n = s.lastSync && s.lastSync.count != null ? s.lastSync.count : cnt(s.id);
-    const meta = `<span class="src-meta">${n} 条 · ${lastShort(s)}</span>`;
-    if (s.type === 'pack') {
-      return `<span class="chip src-chip" title="原厂策展岗位包，随版本更新；离线自动回落内置包"><span>📦</span><strong>原厂岗位包</strong>${meta}${btn('↻', '同步岗位包', `jobsSync('${s.id}')`)}</span>`;
-    }
-    if (s.type === 'import') {
-      return `<span class="chip src-chip" title="台账迁移导入的岗位库；重新迁移会整桶替换"><span>🗂</span><strong>${esc(s.label || '台账岗位库')}</strong><span class="src-meta">${n} 条</span></span>`;
-    }
-    return `<span class="chip src-chip" title="${esc(s.url || '')}"><span>📄</span><strong>${esc(s.label || '文档源')}</strong>${meta}${btn('↻', '同步此来源', `jobsSync('${s.id}')`)}${btn('✕', '移除此来源（岗位一并移除，标记保留）', `removeJobSource('${s.id}','${esc(s.label || '')}')`, 'danger')}</span>`;
-  }).join('') + `<button class="act act-sm" style="min-height:26px;padding:0 10px;font-size:12px" onclick="openJobSourceOverlay()">＋ 添加文档源</button>`;
+    const meta = `${n} 条 · ${lastShort(s)}`;
+    let actions = '';
+    if (s.type === 'pack') actions = btn('同步', '同步岗位包（离线自动回落内置包）', `jobsSync('${s.id}')`);
+    else if (s.type === 'doc') actions = btn('同步', '同步此来源', `jobsSync('${s.id}')`) + btn('移除', '移除此来源（岗位一并移除，标记保留）', `removeJobSource('${s.id}','${esc(s.label || '')}')`);
+    else if (s.type === 'import') actions = '<span class="dim" style="font-size:11.5px">迁移导入 · 重新迁移时整桶替换</span>';
+    const tip = s.url ? ` title="${esc(s.url)}"` : '';
+    return `<div style="display:flex;align-items:center;gap:10px;padding:10px 2px;border-bottom:1px solid var(--line)"${tip}>`
+      + `<span style="font-size:17px">${s.type === 'pack' ? '📦' : s.type === 'import' ? '🗂' : '📄'}</span>`
+      + `<span style="min-width:0"><strong style="font-size:13px">${esc(s.label || (s.type === 'pack' ? '原厂岗位包' : s.type === 'import' ? '台账岗位库' : '文档源'))}</strong>`
+      + `<div class="src-meta">${meta}</div></span>`
+      + `<span style="margin-left:auto;display:inline-flex;gap:4px;align-items:center;white-space:nowrap">${actions}</span></div>`;
+  }).join('') || '<div class="dim" style="padding:14px 2px">还没有岗位源——点下方「添加文档源」或点「同步岗位库」获取原厂岗位包。</div>';
 }
+function openJobSourcesOverlay() { renderJobSources(); document.getElementById('jobSourcesOverlay').style.display = 'flex'; }
+function closeJobSourcesOverlay() { document.getElementById('jobSourcesOverlay').style.display = 'none'; }
 function openJobSourceOverlay() {
   $('jsUrl').value = ''; $('jsPreview').innerHTML = ''; $('jsConfirmRow').style.display = 'none';
   document.getElementById('jobSourceOverlay').style.display = 'flex';
