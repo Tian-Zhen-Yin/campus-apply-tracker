@@ -181,6 +181,11 @@
   .chip-btn { min-height: 20px; padding: 0 6px !important; border-radius: 6px; font-size: 11px; color: var(--muted); background: none; border-color: transparent; }
   .chip-btn:hover { transform: none; box-shadow: none; color: var(--primary); background: var(--soft); border-color: transparent; }
   .chip-btn.danger:hover { color: #b94747; background: #fdeeee; }
+  /* ⓘ 帮助件 + 折叠卡:三层文字披露(常显一行/悬停/点开弹层) */
+  .help-ico { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; margin-left: 5px; border-radius: 50%; border: 1px solid #c9d2e3; color: var(--muted); font-size: 10px; font-style: normal; cursor: pointer; vertical-align: 1px; }
+  .help-ico:hover { color: var(--primary); border-color: var(--primary); }
+  .fold-arrow { color: var(--muted); font-size: 12px; margin-left: auto; }
+  .card.fold > .card-hd { cursor: pointer; }
   /* 投递总览公司名=官网跳转入口:加粗+右上角箭头,悬停点亮 */
   a.site-link { cursor: pointer; color: inherit; text-decoration: none; user-select: none; }
   a.site-link strong { font-weight: 750; }
@@ -379,7 +384,7 @@
 
     <section class="panel" id="secJobs" aria-label="岗位库">
       <div class="panel-head">
-        <div><h2 class="panel-title">岗位库</h2><div class="panel-caption" id="jobSyncCap">岗位表由你在腾讯文档里维护，控制台只读同步；「已投/不投/关注」标记只存本机，重同步不丢</div></div>
+        <div><h2 class="panel-title">岗位库</h2><div class="panel-caption" id="jobSyncCap">加载中…</div></div>
         <div class="row">
           <button class="btn" id="jobPublishBtn" style="display:none" onclick="jobsPublish()" title="维护者：同步文档→打包→提交并推送仓库（发布给所有用户）">🚀 发布岗位包</button>
           <button class="btn btn-primary" onclick="jobsSync()" title="从你的腾讯智能表格拉取最新岗位"><span class="icon">↻</span>同步岗位库</button>
@@ -399,14 +404,14 @@
 
     <section class="panel" id="secSites" aria-label="站点接入">
       <div class="panel-head">
-        <div><h2 class="panel-title">站点接入</h2><div class="panel-caption">登录 = 扫码/短信一次；抓包 = 打开「我的投递」页让工具认接口</div></div>
+        <div><h2 class="panel-title">站点接入</h2><div class="panel-caption">先登录，再抓包<span class="help-ico" onclick="showHelp('sites')">ⓘ</span></div></div>
       </div>
       <div class="panel-body grid" id="sites"></div>
     </section>
 
     <section class="panel" id="secMail" aria-label="邮件通知">
       <div class="panel-head">
-        <div><h2 class="panel-title">邮件通知</h2><div class="panel-caption">笔试/面试邀约大多走邮件——IMAP 官方授权拉取，零风控风险</div></div>
+        <div><h2 class="panel-title">邮件通知</h2><div class="panel-caption">邀约邮件自动进来<span class="help-ico" onclick="showHelp('mail')">ⓘ</span></div></div>
         <div style="display:flex;gap:12px;align-items:center">
           <button class="act" onclick="pollMailNow()">↻ 立即拉取</button>
           <a class="panel-link" href="javascript:void(0)" onclick="document.querySelector('#mailCard').scrollIntoView({behavior:'smooth'})">配置邮箱 ↓</a>
@@ -453,23 +458,26 @@
           </div>
           <p class="dim" style="margin-bottom:0">有状态变化时往群里推卡片。建机器人：飞书群 → 设置 → 群机器人 → 自定义机器人。webhook 别外发。</p>
         </div>
-        <div class="card">
-          <div class="card-hd"><strong>定时任务</strong></div>
-          <div class="chips" style="margin:10px 0">
-            <span class="chip" id="laKa">服务常驻：检测中…</span>
-            <span class="chip" id="laRp">查询+邮件定时：检测中…</span>
-            <span class="chip" id="laJp">岗位包定时发布：检测中…</span>
+        <div class="card fold">
+          <div class="card-hd" onclick="toggleCard(this.parentNode)"><strong>定时任务</strong><span class="help-ico" title="定时任务说明" onclick="event.stopPropagation();showHelp('sched')">ⓘ</span><span class="dim" id="schedSum"></span><span class="fold-arrow">▸</span></div>
+          <div class="fold-body" style="display:none">
+            <div class="chips" style="margin:10px 0">
+              <span class="chip" id="laKa">服务常驻：检测中…</span>
+              <span class="chip" id="laRp">查询+邮件定时：检测中…</span>
+              <span class="chip" id="laJp">岗位包定时发布：检测中…</span>
+            </div>
+            <div class="row">
+              <button class="act" onclick="act('/api/keepalive',{})">手动保活一轮</button>
+              <button class="act" id="laJpBtn" onclick="toggleJobpackSchedule()">安装岗位包定时发布</button>
+            </div>
           </div>
-          <div class="row">
-            <button class="act" onclick="act('/api/keepalive',{})">手动保活一轮</button>
-            <button class="act" id="laJpBtn" onclick="toggleJobpackSchedule()">安装岗位包定时发布</button>
-          </div>
-          <p class="dim" style="margin-bottom:0">查询+邮件定时随控制台自动安装（工作日 9:30 / 14:30 / 20:00）。「岗位包定时发布」为维护者可选：每日 12:00 / 21:30 自动同步文档→打包→提交并推送仓库，用户点同步即拿最新；岗位数异常时自动拦截并弹通知。装好后本页不用开着。</p>
         </div>
-        <div class="card">
-          <div class="card-hd"><strong>数据位置</strong></div>
-          <p class="dim" id="homeTxt" style="margin-bottom:8px"></p>
-          <p class="dim" style="margin-bottom:0">每次查状态成功后，自动把官方状态汇总为状态包 <code>out/tracker-sync.json</code>，供「校招投递管理」的状态同步面板读取。</p>
+        <div class="card fold">
+          <div class="card-hd" onclick="toggleCard(this.parentNode)"><strong>数据位置</strong><span class="help-ico" title="数据位置说明" onclick="event.stopPropagation();showHelp('data')">ⓘ</span><span class="dim" id="dataSum"></span><span class="fold-arrow">▸</span></div>
+          <div class="fold-body" style="display:none">
+            <p class="dim" id="homeTxt" style="margin-bottom:8px"></p>
+            <p class="dim" style="margin-bottom:0">每次查状态成功后，自动把官方状态汇总为状态包 <code>out/tracker-sync.json</code>，供「校招投递管理」的状态同步面板读取。</p>
+          </div>
         </div>
       </div>
       </div>
@@ -482,6 +490,17 @@
   <pre id="logs">（暂无）</pre>
 </div>
 <div class="toast" id="toast"></div>
+
+<div id="helpOverlay" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:80;align-items:center;justify-content:center" onclick="if(event.target===this)closeHelp()">
+  <div style="background:#fff;border-radius:14px;padding:20px 22px;width:440px;max-width:92vw">
+    <strong id="helpTitle"></strong>
+    <p style="margin:10px 0 0;line-height:1.8;font-size:13.5px;color:#3b4559" id="helpBody"></p>
+    <div class="row" style="margin-top:14px;align-items:center">
+      <a class="panel-link" id="helpGuide" href="javascript:void(0)" style="font-size:12.5px"></a>
+      <button class="act act-sm" style="margin-left:auto" onclick="closeHelp()">知道了</button>
+    </div>
+  </div>
+</div>
 
 <div id="siteOverlay" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:60;align-items:center;justify-content:center">
   <div style="background:#fff;border-radius:12px;padding:18px 20px;width:460px;max-width:92vw;max-height:88vh;overflow:auto">
@@ -601,6 +620,35 @@ const badge = (raw) => {
   return `<span class="b b-${code}" title="${esc(raw || '未知')}">${label}</span>`;
 };
 
+// ===== ⓘ 帮助件:三层文字的第二/三层(常显一行→悬停短解释→点开弹层+指南锚点)。被移出常显层的文字都收在这里 =====
+const HELP = {
+  jobs: { t: '岗位库怎么工作', b: '你的岗位表在腾讯文档里维护，控制台只读同步：表里改了，点「同步」即更新。你的「已投/不投/关注」标记只存本机，重同步不丢；「已投」会同时记入投递总览。默认展示最近更新的 250 条，全量仍在库中。文档地址需为 docs.qq.com/smartsheet 且含 tab 参数。', g: ['#jobs', '图文指南 · 收录与岗位库'] },
+  sites: { t: '登录与抓包', b: '登录 = 用你自己的账号扫码一次，之后工具像真人一样低频查询（深夜不查）。抓包 = 打开「我的投递」页让工具认识该网站的状态接口，用于没有预置的网站。', g: ['#follow', '图文指南 · 自动跟进'] },
+  mail: { t: '邮件通知', b: '笔试/面试邀约大多走邮件。用 IMAP 授权码拉取（授权码不是邮箱密码，在邮箱网页版设置里生成），只在本机读取，零风控风险；识别出的邀约会自动挂到对应投递下。', g: ['#mail', '图文指南 · 邮件邀约'] },
+  sched: { t: '定时任务', b: '「查询+邮件定时」随控制台自动安装（工作日 9:30 / 14:30 / 20:00），装好后本页不用开着。「岗位包定时发布」为维护者可选：每日 12:00 / 21:30 自动同步文档→打包→推送，岗位数异常时自动拦截并通知。', g: ['#adv', '图文指南 · 进阶'] },
+  data: { t: '数据位置', b: '所有数据只存在本机 ~/.ats-status 一个目录：官网抓取、岗位库、邮件、配置都在这里，不联网上传；卸载 = 删除目录。状态包 out/tracker-sync.json 供网页版台账读取。', g: ['#data', '图文指南 · 数据与备份'] },
+  pack: { t: '发布岗位包', b: '维护者功能：把主文档源变成公开岗位包（同步→防呆检查→打包→推送仓库），普通用户点「同步」即拿最新。内推码默认剥离，永不外泄。', g: ['#jobs', '图文指南 · 收录与岗位库'] },
+};
+function showHelp(k) {
+  const h = HELP[k];
+  if (!h) return;
+  $('helpTitle').textContent = h.t;
+  $('helpBody').textContent = h.b;
+  const g = $('helpGuide');
+  g.textContent = h.g ? `📖 ${h.g[1]}` : '';
+  g.style.display = h.g ? '' : 'none';
+  g.onclick = h.g ? () => window.open(`/guide${h.g[0]}`, '_blank') : null;
+  document.getElementById('helpOverlay').style.display = 'flex';
+}
+function closeHelp() { document.getElementById('helpOverlay').style.display = 'none'; }
+function toggleCard(card) {
+  const body = card.querySelector('.fold-body');
+  const open = body.style.display === 'none';
+  body.style.display = open ? '' : 'none';
+  const arr = card.querySelector('.fold-arrow');
+  if (arr) arr.textContent = open ? '▾' : '▸';
+}
+
 async function api(path, body) {
   const res = await fetch(path, { method: body === undefined ? 'GET' : 'POST', headers: { 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
   const data = await res.json().catch(() => ({}));
@@ -627,6 +675,8 @@ function schedule() {
 function render() {
   $('nowTxt').textContent = '· ' + new Date(S.now).toLocaleTimeString('zh-CN', { hour12: false });
   $('homeTxt').textContent = '全部数据在本机 ' + S.home + '（会话 profiles / 接口定义 / 查询结果 / 面板），不联网上传。';
+  const dataSum = document.getElementById('dataSum');
+  if (dataSum) dataSum.textContent = S.home;
   renderAlerts();
   renderInspect();
   renderSites();
@@ -1238,12 +1288,12 @@ function renderJobs() {
   const ls = J.lastSync;
   renderJobSources();
   $('jobPublishBtn').style.display = J.source === 'doc' ? '' : 'none'; // 发布是维护者（文档模式）专属
-  const srcLabel = J.source === 'doc'
-    ? '岗位表由你在腾讯文档里维护，控制台只读同步'
-    : `岗位来自岗位包${J.packUrl ? '（自定义远程地址）' : '（远程自动更新，离线回落内置包）'}${J.packAt ? '，生成于 ' + cn(J.packAt) : ''}，点同步拿最新`;
-  const windowNote = J.total > (J.jobs || []).length ? `；展示最近更新的 ${J.jobs.length} 条（库中共 ${J.total} 条）` : '';
-  $('jobSyncCap').innerHTML = `${srcLabel}；「已投」会同时记入投递总览，「不投/关注」标记只存本机，重同步不丢${windowNote}`
-    + (ls ? (ls.error ? ` · <span style="color:#b94747">上次同步失败：${esc(ls.error)}</span>` : ` · 上次同步 ${cn(ls.at)}，共 ${ls.count} 条`) : ' · 还没同步过——点「同步岗位库」拉取');
+  // 说明行只留数据(条数+同步时间),机制解释进 ⓘ(三层披露)
+  const syncShort = ls ? (ls.error
+    ? `<span style="color:#b94747">同步失败：${esc(String(ls.error).split('（')[0].slice(0, 30))}</span> <a class="panel-link" style="cursor:pointer" onclick="showHelp('jobs')">如何修复</a>`
+    : `同步于 ${ovTime(ls.at)}`) : '未同步';
+  const winNote = J.total > (J.jobs || []).length ? ` · 展示最近 ${J.jobs.length} 条` : '';
+  $('jobSyncCap').innerHTML = `共 ${J.total ?? (J.jobs || []).length} 条 · ${syncShort}${winNote} <span class="help-ico" title="岗位库机制说明" onclick="showHelp('jobs')">ⓘ</span>`;
   const all = jobView();
   const now = new Date();
   const due = all.filter((r) => !r.m.skip && !r.m.applied && r.deadline && jobDaysLeft(r.deadline, now) >= 0 && jobDaysLeft(r.deadline, now) <= 7).length;
@@ -1546,6 +1596,8 @@ function renderSettings() {
   $('laKa').className = 'chip ' + ((S.services || {}).console ? 'on' : 'off');
   $('laRp').textContent = laRpLabel + '：' + ((S.services || {}).schedule ? '已安装 ✓' : '未安装');
   $('laRp').className = 'chip ' + ((S.services || {}).schedule ? 'on' : 'off');
+  const schedSum = document.getElementById('schedSum');
+  if (schedSum) schedSum.textContent = ((S.services || {}).schedule ? '已安装' : '未安装');
   $('laJp').textContent = '岗位包定时发布：' + ((S.services || {}).jobpack ? '已安装 ✓（每日 12:00 / 21:30）' : '未安装');
   $('laJp').className = 'chip ' + ((S.services || {}).jobpack ? 'on' : 'off');
   $('laJpBtn').textContent = (S.services || {}).jobpack ? '卸载岗位包定时发布' : '安装岗位包定时发布';
