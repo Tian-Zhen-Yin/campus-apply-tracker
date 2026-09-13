@@ -181,6 +181,12 @@
   .chip-btn { min-height: 20px; padding: 0 6px !important; border-radius: 6px; font-size: 11px; color: var(--muted); background: none; border-color: transparent; }
   .chip-btn:hover { transform: none; box-shadow: none; color: var(--primary); background: var(--soft); border-color: transparent; }
   .chip-btn.danger:hover { color: #b94747; background: #fdeeee; }
+  /* 投递总览公司名=官网跳转入口:加粗+右上角箭头,悬停点亮 */
+  a.site-link { cursor: pointer; color: inherit; text-decoration: none; user-select: none; }
+  a.site-link strong { font-weight: 750; }
+  a.site-link .ext { font-size: 10px; color: var(--primary); margin-left: 2px; vertical-align: super; opacity: .75; }
+  a.site-link:hover { color: var(--primary); }
+  a.site-link:hover strong { text-decoration: underline; text-underline-offset: 3px; }
   .chip.on { background: var(--green-soft); border-color: #bde7d5; color: #1d7a58; }
   .chip.off { background: var(--red-soft); border-color: #f0c8c8; color: #943434; }
   .row { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -1002,14 +1008,18 @@ function renderOverview() {
   const maxPage = Math.max(1, Math.ceil(rows.length / OV_PAGE_SIZE));
   if (ovPage > maxPage) ovPage = maxPage;
   const pageRows = rows.slice((ovPage - 1) * OV_PAGE_SIZE, ovPage * OV_PAGE_SIZE);
-  $('overview').innerHTML = `<table><thead><tr><th style="width:92px">公司</th><th>岗位</th><th style="width:96px">地点</th><th style="width:96px">状态</th><th style="width:104px">数据时间</th><th style="width:196px">操作</th></tr></thead><tbody>` +
+  $('overview').innerHTML = `<table><thead><tr><th style="width:92px">公司</th><th>岗位</th><th style="width:96px">地点</th><th style="width:96px">状态</th><th style="width:104px">数据时间</th><th style="width:168px">操作</th></tr></thead><tbody>` +
     pageRows.map((r) => {
       const i = ovRows.indexOf(r);
       const acts = r.key && r.archived ? `<button class="act act-sm text" onclick="ovUnarchive(${i})">取消归档</button>`
         : `<span class="btn-row">${ovActs(i)}</span>`;
       const mails = mailByTarget.get(r.tk) || [];
       const full = r.job + (r.dept ? ` · ${r.dept}` : '');
-      return `<tr${r.archived ? ' style="opacity:.55"' : ''}><td data-label="公司" style="white-space:nowrap">${esc(r.company)}${!r.key ? `<span class="dim" style="font-size:11px;margin-left:4px" title="记录来源：${esc(r.src)}">${esc(r.src)}</span>` : ''}</td><td data-label="岗位"><span class="ellip" style="max-width:430px" title="${esc(full)}"><strong>${esc(r.job)}</strong>${r.dept ? `<span class="dim"> · ${esc(r.dept)}</span>` : ''}</span>${r.corrected ? ' <span class="chip on" style="font-size:11px">✎已人工修正</span>' : ''}${r.archived ? ' <span class="chip off" style="font-size:11px">🗄已归档</span>' : ''}</td><td data-label="地点">${esc(r.city || '—')}</td><td data-label="状态">${badge(r.statusRaw)}</td><td data-label="数据时间" class="dim">${r.at ? ovTime(r.at) : esc(r.appliedAt || '—')}</td><td data-label="操作">${acts}</td></tr>`
+      // 公司名:站点行=可点击跳官网投递状态(加粗+右上角箭头),apps 行=纯粗体+来源标签
+      const companyCell = r.key
+        ? `<a class="site-link" title="在常驻浏览器打开官网投递状态（登录态保持）" onclick="ovSiteOpen('${esc(r.key)}')"><strong>${esc(r.company)}</strong><span class="ext">↗</span></a>`
+        : `<strong>${esc(r.company)}</strong><span class="dim" style="font-size:11px;margin-left:4px" title="记录来源：${esc(r.src)}">${esc(r.src)}</span>`;
+      return `<tr${r.archived ? ' style="opacity:.55"' : ''}><td data-label="公司" style="white-space:nowrap">${companyCell}</td><td data-label="岗位"><span class="ellip" style="max-width:430px" title="${esc(full)}"><strong>${esc(r.job)}</strong>${r.dept ? `<span class="dim"> · ${esc(r.dept)}</span>` : ''}</span>${r.corrected ? ' <span class="chip on" style="font-size:11px">✎已人工修正</span>' : ''}${r.archived ? ' <span class="chip off" style="font-size:11px">🗄已归档</span>' : ''}</td><td data-label="地点">${esc(r.city || '—')}</td><td data-label="状态">${badge(r.statusRaw)}</td><td data-label="数据时间" class="dim">${r.at ? ovTime(r.at) : esc(r.appliedAt || '—')}</td><td data-label="操作">${acts}</td></tr>`
         + (mails.length ? `<tr><td colspan="6" style="padding:2px 14px 10px;font-size:12px;color:#475569">${mails.map((m) => `📬 ${mailBadge(m.kind)} ${esc(m.subject)}${mailTip(m)} <span class="dim">${cn(m.at)}</span>`).join('<br>')}</td></tr>` : '');
     }).join('') + '</tbody></table>' + pagerHtml('ovPage', 'renderOverview', rows.length, ovPage, maxPage);
 }
@@ -1017,9 +1027,8 @@ const ovActs = (i) => {
   const r = ovRows[i];
   const next = ovAdvanceStep(r);
   const adv = next ? `<button class="act act-sm soft" title="推进到「${next.label}」" onclick="ovAdvance(${i})">推进</button>` : '';
-  const siteBtn = r.key ? `<button class="act act-sm text" title="在常驻浏览器打开该官网的投递状态页（登录态保持）" onclick="ovSiteOpen('${esc(r.key)}')">官网</button>` : '';
   const editTitle = r.key ? '人工修正状态（官网更新不覆盖）' : '编辑这条投递记录';
-  return `${adv}${siteBtn}<button class="act act-sm text" title="${editTitle}" onclick="ovOpenEdit(${i})">编辑</button><button class="act act-sm text" title="从默认视图隐藏，可恢复" onclick="ovArchive(${i})">归档</button>`;
+  return `${adv}<button class="act act-sm text" title="${editTitle}" onclick="ovOpenEdit(${i})">编辑</button><button class="act act-sm text" title="从默认视图隐藏，可恢复" onclick="ovArchive(${i})">归档</button>`;
 };
 async function ovSiteOpen(site) {
   try {
