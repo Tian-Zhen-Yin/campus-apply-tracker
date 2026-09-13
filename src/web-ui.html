@@ -366,11 +366,11 @@
             <option value="only">已归档</option>
             <option value="all">全部（含归档）</option>
           </select>
-          <input type="text" id="ovSearch" placeholder="搜索公司 / 岗位 / 部门 / 城市 / 状态" style="max-width:300px;margin-left:auto" oninput="ovPage=1;renderOverview()">
+          <input type="text" id="ovSearch" placeholder="搜索公司 / 岗位 / 部门 / 城市 / 状态" style="max-width:260px" oninput="ovPage=1;renderOverview()">
           <input type="file" id="ovImportFile" accept=".json" style="display:none" onchange="ovImport(this)">
           <button class="act act-sm" title="从导出的 JSON 恢复手工/岗位库投递记录（按 公司+岗位 幂等合并；官网自动行跳过）" onclick="document.getElementById('ovImportFile').click()">导入 JSON</button>
           <button class="act act-sm" title="把全部投递总览数据（含官网自动行，仅作存档）导出为 JSON 文件" onclick="ovExport()">导出 JSON</button>
-          <span class="dim" id="ovFiltered" style="margin-left:10px"></span>
+          <span class="dim" id="ovFiltered" style="margin-left:auto"></span>
         </div>
       </div>
       <div class="table-scroll" id="overview"></div>
@@ -389,7 +389,7 @@
         <div class="chips" id="jobStats" style="margin:0 0 10px"></div>
         <div class="row" style="align-items:center">
           <div class="chips" id="jobFilters"></div>
-          <input type="text" id="jobSearch" placeholder="搜索公司 / 岗位 / 城市" style="max-width:230px;margin-left:auto" oninput="jobPage=1;renderJobList()">
+          <input type="text" id="jobSearch" placeholder="搜索公司 / 岗位 / 城市" style="max-width:260px" oninput="jobPage=1;renderJobList()">
         </div>
         <div class="table-scroll" id="jobList" style="margin-top:10px"></div>
       </div>
