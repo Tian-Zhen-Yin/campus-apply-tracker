@@ -463,16 +463,6 @@
           <p class="dim" style="margin-bottom:0">查询+邮件定时随控制台自动安装（工作日 9:30 / 14:30 / 20:00）。「岗位包定时发布」为维护者可选：每日 12:00 / 21:30 自动同步文档→打包→提交并推送仓库，用户点同步即拿最新；岗位数异常时自动拦截并弹通知。装好后本页不用开着。</p>
         </div>
         <div class="card">
-          <div class="card-hd"><strong>从台账迁移</strong></div>
-          <p class="dim" style="margin:0 0 8px">把「校招投递管理」台账的数据迁进来：投递记录 → 手工登记（总览可见）；岗位库与「不投」标记 → 专用「台账岗位库」岗位源。幂等，可重复执行。</p>
-          <input type="file" id="tmFile" accept=".json" style="font-size:12px;margin-bottom:8px">
-          <textarea id="tmText" placeholder="或把台账「导出数据」的 JSON 粘贴到这里" style="min-height:64px"></textarea>
-          <div class="row" style="margin-top:10px">
-            <button class="act pri" onclick="trackerMigrateGo()">开始迁移</button>
-          </div>
-          <p class="dim" style="margin:8px 0 0" id="tmResult"></p>
-        </div>
-        <div class="card">
           <div class="card-hd"><strong>数据位置</strong></div>
           <p class="dim" id="homeTxt" style="margin-bottom:8px"></p>
           <p class="dim" style="margin-bottom:0">每次查状态成功后，自动把官方状态汇总为状态包 <code>out/tracker-sync.json</code>，供「校招投递管理」的状态同步面板读取。</p>
@@ -1650,18 +1640,8 @@ function renderLogs() {
   if (lines.length) pre.textContent = lines.slice(-120).reverse().join('\n');
 }
 
-// ===== 台账迁移(文件式入口) =====
-async function trackerMigrateGo() {
-  let payload = $('tmText').value.trim();
-  if (!payload && $('tmFile').files?.[0]) payload = await $('tmFile').files[0].text();
-  if (!payload) { toast('先选择台账导出的 JSON 文件，或把内容粘贴进来'); return; }
-  $('tmResult').textContent = '⏳ 迁移中…';
-  try {
-    const r = await api('/api/import/tracker', { payload });
-    $('tmResult').innerHTML = `✓ 投递记录：新增 ${r.recordsAdded}、更新 ${r.recordsUpdated}${r.withJobPool ? `；岗位库 ${r.jobsImported} 条（含 ${r.skipMarks} 个不投标记）` : '。<span class="dim">导出文件不含岗位库——岗位请用台账里的「迁移到控制台」按钮</span>'}`;
-  } catch (e) { $('tmResult').textContent = `✗ ${e.message}`; }
-  await refresh();
-}
+// （台账迁移控制台侧的文件式入口已移除——统一走台账「数据安全 → 迁移到校招投递控制台」一键通道；
+//   /api/import/tracker 路由保留，台账一键迁移按钮仍在使用）
 
 // ===== 插件跳转承接:/console?capture=<base64url> → 自动打开识别弹窗并预填(待确认) =====
 function consumeCaptureParam() {
