@@ -361,6 +361,7 @@
             <option value="all">全部（含归档）</option>
           </select>
           <input type="text" id="ovSearch" placeholder="搜索公司 / 岗位 / 部门 / 城市 / 状态" style="max-width:300px;margin-left:auto" oninput="ovPage=1;renderOverview()">
+          <button class="act act-sm" title="把当前筛选的投递总览导出为 JSON 文件" onclick="ovExport()">导出 JSON</button>
           <span class="dim" id="ovFiltered" style="margin-left:10px"></span>
         </div>
       </div>
@@ -1001,7 +1002,7 @@ function renderOverview() {
   const maxPage = Math.max(1, Math.ceil(rows.length / OV_PAGE_SIZE));
   if (ovPage > maxPage) ovPage = maxPage;
   const pageRows = rows.slice((ovPage - 1) * OV_PAGE_SIZE, ovPage * OV_PAGE_SIZE);
-  $('overview').innerHTML = `<table><thead><tr><th style="width:92px">公司</th><th>岗位</th><th style="width:96px">地点</th><th style="width:96px">状态</th><th style="width:104px">数据时间</th><th style="width:168px">操作</th></tr></thead><tbody>` +
+  $('overview').innerHTML = `<table><thead><tr><th style="width:92px">公司</th><th>岗位</th><th style="width:96px">地点</th><th style="width:96px">状态</th><th style="width:104px">数据时间</th><th style="width:196px">操作</th></tr></thead><tbody>` +
     pageRows.map((r) => {
       const i = ovRows.indexOf(r);
       const acts = r.key && r.archived ? `<button class="act act-sm text" onclick="ovUnarchive(${i})">取消归档</button>`
@@ -1016,9 +1017,43 @@ const ovActs = (i) => {
   const r = ovRows[i];
   const next = ovAdvanceStep(r);
   const adv = next ? `<button class="act act-sm soft" title="推进到「${next.label}」" onclick="ovAdvance(${i})">推进</button>` : '';
+  const siteBtn = r.key ? `<button class="act act-sm text" title="在常驻浏览器打开该官网的投递状态页（登录态保持）" onclick="ovSiteOpen('${esc(r.key)}')">官网</button>` : '';
   const editTitle = r.key ? '人工修正状态（官网更新不覆盖）' : '编辑这条投递记录';
-  return `${adv}<button class="act act-sm text" title="${editTitle}" onclick="ovOpenEdit(${i})">编辑</button><button class="act act-sm text" title="从默认视图隐藏，可恢复" onclick="ovArchive(${i})">归档</button>`;
+  return `${adv}${siteBtn}<button class="act act-sm text" title="${editTitle}" onclick="ovOpenEdit(${i})">编辑</button><button class="act act-sm text" title="从默认视图隐藏，可恢复" onclick="ovArchive(${i})">归档</button>`;
 };
+async function ovSiteOpen(site) {
+  try {
+    await api('/api/site/open', { site });
+    toast('已在常驻浏览器打开官网投递状态（登录态保持）');
+  } catch (e) { toast(e.message); }
+}
+// 导出当前筛选的投递总览为 JSON(客户端直接生成,不经后端)
+function ovExport() {
+  if (!ovRows.length) { toast('当前筛选没有可导出的投递'); return; }
+  const data = {
+    exportedAt: new Date().toISOString(),
+    count: ovRows.length,
+    records: ovRows.map((r) => ({
+      公司: r.company,
+      岗位: r.job,
+      部门: r.dept || '',
+      城市: r.city || '',
+      状态: r.statusRaw || '',
+      投递时间: r.appliedAt || '',
+      来源: r.src || '',
+      数据时间: r.at || '',
+      已人工修正: !!r.corrected,
+      已归档: !!r.archived,
+    })),
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `投递总览-${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  toast(`已导出 ${data.count} 条（当前筛选结果）`);
+}
 // 推进阶梯与筛选/编辑同一套词汇:已投递→评估中→笔试→面试→HR面→Offer,每点一次走一格
 const OV_LADDER = [
   { code: 'APPLIED', label: '已投递', match: ['APPLIED'] },

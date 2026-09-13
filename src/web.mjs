@@ -943,6 +943,24 @@ async function route(req, res, url) {
       catch (e) { return json(res, 409, { error: e.message }); }
       return json(res, 200, { ok: true });
     }
+    case '/api/site/open': {
+      // 总览行「官网」:打开/聚焦该站常驻标签(登录态保持),落在官网投递门户
+      const site = String(body.site || '');
+      if (!SITES[site]) return json(res, 400, { error: '未知站点' });
+      try {
+        const r = resident.get(site);
+        if (r && !r.page.isClosed()) {
+          await r.page.goto(SITES[site].entry, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
+          await r.page.bringToFront().catch(() => {});
+        } else {
+          if (busy && !busy.done) return json(res, 409, { error: '有任务正在执行，稍后再试' });
+          await openResident(site);
+          await resident.get(site)?.page?.bringToFront().catch(() => {});
+        }
+        log(`🔗 已跳转官网投递状态：${SITES[site].label}`);
+        return json(res, 200, { ok: true });
+      } catch (e) { return json(res, 409, { error: String(e?.message || e) }); }
+    }
     case '/api/resident/confirm': {
       const r = resident.get(String(body.site || ''));
       if (!r) { log('⚠️ confirm：常驻浏览器不存在（页面可能是旧的，请刷新控制台页面）'); return json(res, 404, { error: '常驻浏览器不存在——请刷新控制台页面后重走「常驻登录」' }); }
